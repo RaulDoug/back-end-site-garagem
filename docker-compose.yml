@@ -1,0 +1,32 @@
+services:
+  garagem_db:
+    image: postgres:15-alpine
+    container_name: garagem_db_container
+    restart: always
+    ports:
+    - "5432:5432"
+    volumes:
+    - garagem_db_data:/var/lib/postgresql/data
+    - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Raul@2026
+      POSTGRES_DB: api_garage
+
+  garagem_db_test:
+    image: postgres:15-alpine
+    container_name: garagem_db_test_container
+    restart: always
+    ports:
+    - "5433:5432"
+    volumes:
+    - garagem_db_test_data:/var/lib/postgresql/data
+    - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Raul@2026
+      POSTGRES_DB: api_garage_test
+
+volumes:
+  garagem_db_data:
+  garagem_db_test_data:
