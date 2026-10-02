@@ -16,7 +16,7 @@ O **SiteGaragem** é uma solução completa para lojas e concessionárias de com
 
 | Perfil | Identificador | Responsabilidades e Permissões |
 | :--- | :--- | :--- |
-| **Administrador** | `ADMIN` | Gestão de colaboradores, cadastro de bancos parceiros e faixas de juros (`BANCO_TAXA`), parametrização da loja, relatórios contábeis de lucratividade/comissões, expurgo físico de mídias e auditoria global. |
+| **Administrador** | `ADMIN` | Gestão de colaboradores, cadastro de bancos parceiros e faixas de juros (`bank_rates`), parametrização da loja, relatórios contábeis de lucratividade/comissões, expurgo físico de mídias e auditoria global. |
 | **Vendedor** | `SELLER` | Cadastro guiado de veículos (próprios/consignados), ordenação da galeria de fotos, gestão da agenda de visitas/test-drives, negociações com reserva, fechamento de vendas e atendimento de propostas de troca e leads multicanal. |
 | **Espectador** | `VIEWER` | Consulta interna somente leitura ao catálogo de estoque, status de visitas agendadas e relatórios consolidados de métricas. |
 | **Cliente / Visitante** | `PUBLIC` | Consulta ao estoque ativo, aplicação de filtros, comparação de veículos, simulação de parcelamento por faixa e banco, envio de proposta de troca, agendamento de visita e seleção de canal preferencial de contato. |
@@ -68,7 +68,7 @@ flowchart TD
   1. Na página de detalhes do veículo, o cliente visualiza o simulador de parcelamento.
   2. Escolhe o banco parceiro desejado entre os ativos (ex: Santander, BV, Itaú, Bradesco, PAN).
   3. Ajusta o valor de entrada e seleciona a quantidade de parcelas (12x, 24x, 36x, 48x ou 60x).
-  4. O sistema consulta na tabela `BANCO_TAXA` a taxa de juros exata vinculada à faixa do prazo selecionado (`meses_de <= prazo <= meses_ate`).
+  4. O sistema consulta na tabela `bank_rates` a taxa de juros exata vinculada à faixa do prazo selecionado (`months_from <= prazo <= months_to`).
   5. O valor da parcela é calculado e apresentado com destaque para o **Aviso Legal Obrigatório**: *"Simulação com base na taxa média referencial da instituição para esta faixa de prazo. A aprovação, taxa real e valor final da parcela dependem de consulta ao CPF e score de crédito do cliente junto ao banco"*.
   6. Ao clicar em "Simular pelo WhatsApp", a mensagem é montada com o banco selecionado, entrada, parcelas calculadas e identificador do anúncio.
 
@@ -76,7 +76,7 @@ flowchart TD
 - **Atores**: Cliente (`PUBLIC`) e Vendedor (`SELLER`).
 - **Fluxo Principal**:
   1. O cliente clica em "Agendar Visita / Test-Drive" no anúncio e informa nome, contato e horário pretendido.
-  2. O registro é salvo na entidade `AGENDAMENTO_VISITA` com status `AGENDADO`.
+  2. O registro é salvo na entidade `visit_appointments` com status `AGENDADO`.
   3. No painel operacional do vendedor, o veículo exibe o marcador visual indicando "Visita Agendada" com data e hora.
   4. Caso o cliente desista ou ocorra imprevisto, o vendedor realiza o cancelamento da visita diretamente pelo sistema com 1 clique, liberando o pátio e disparando aviso.
 
@@ -91,8 +91,8 @@ flowchart TD
 - **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. O operador escolhe o tipo de anúncio: `PROPRIO` ou `CONSIGNADO`.
-  2. Se `PROPRIO`: informa `preco_compra` e `preco_venda` para apuração direta de lucro da loja.
-  3. Se `CONSIGNADO`: preenche os dados do proprietário (`nome`, `telefone`), o `valor_proprietario` (valor líquido acordado com o dono) e a `taxa_comissao_loja` (percentual ou valor fixo de corretagem).
+  2. Se `PROPRIO`: informa `purchase_price` e `sale_price` para apuração direta de lucro da loja.
+  3. Se `CONSIGNADO`: preenche os dados do proprietário (`owner_name`, `owner_contact`), o `owner_price` (valor líquido acordado com o dono) e a `store_commission_rate` (percentual ou valor fixo de corretagem).
   4. Preenche características técnicas e descrição detalhada (incluindo eventuais manutenções e revisões realizadas no texto descritivo). Inserção inline imediata de novas marcas, modelos ou opcionais caso não existam.
   5. Realiza o upload das imagens e laudo cautelar em PDF.
 
@@ -108,8 +108,8 @@ flowchart TD
 - **Fluxo Principal**:
   1. O vendedor confirma a venda e altera o status para `VENDIDO`.
   2. Informa dados do comprador e confirma se o lead foi originado pelo site.
-  3. Para veículo `PROPRIO`: calcula lucro bruto = `preco_venda - preco_compra`.
-  4. Para veículo `CONSIGNADO`: calcula margem da loja = `preco_venda - valor_proprietario` e apura a comissão do vendedor sobre a taxa retida.
+  3. Para veículo `PROPRIO`: calcula lucro bruto = `sale_price - purchase_price`.
+  4. Para veículo `CONSIGNADO`: calcula margem da loja = `sale_price - owner_price` e apura a comissão do vendedor sobre a taxa retida.
   5. Dispara rotina de retenção histórica e agenda expurgo dos arquivos físicos em 7 dias.
 
 #### UC11: Emissão de Cartaz de Showroom para Pátio Físico
@@ -122,8 +122,8 @@ flowchart TD
 #### UC12: Parametrização de Bancos e Matriz de Taxas por Faixas
 - **Ator**: Administrador (`ADMIN`).
 - **Fluxo Principal**:
-  1. O administrador cadastra as instituições parceiras (`BANCO_FINANCIAMENTO`).
-  2. Para cada banco, cadastra as faixas de parcelamento em `BANCO_TAXA` (ex: 1 a 12 meses -> 1.19% a.m., 13 a 24 meses -> 1.35% a.m., 25 a 36 meses -> 1.49% a.m., etc.).
+  1. O administrador cadastra as instituições parceiras (`financing_banks`).
+  2. Para cada banco, cadastra as faixas de parcelamento em `bank_rates` (ex: 1 a 12 meses -> 1.19% a.m., 13 a 24 meses -> 1.35% a.m., 25 a 36 meses -> 1.49% a.m., etc.).
   3. A matriz abastece com precisão as simulações na vitrine pública.
 
 ---
@@ -167,14 +167,14 @@ flowchart TD
 7. **[RN007] Anti-fraude em Métricas de Visualização**:
    Acessos do mesmo par (IP + User-Agent) em janela inferior a 30 minutos contam como apenas 1 visualização no banco.
 8. **[RN008] Regra de Foto de Capa (Drag & Drop)**:
-   A foto posicionada no índice 0 da galeria é automaticamente persistida com `principal = true`, e as demais como `false`.
+   A foto posicionada no índice 0 da galeria é automaticamente persistida com `is_primary = true`, e as demais como `false`.
 9. **[RN009] Cálculo de Margem por Tipo de Venda**:
-   - `PROPRIO`: `lucro_bruto = preco_venda - preco_compra`.
-   - `CONSIGNADO`: `margem_loja = preco_venda - valor_proprietario`. A comissão do vendedor incide sobre a margem retida pela loja.
+   - `PROPRIO`: `gross_profit = sale_price - purchase_price`.
+   - `CONSIGNADO`: `store_margin = sale_price - owner_price`. A comissão do vendedor incide sobre a margem retida pela loja.
 10. **[RN010] Cadastro Dinâmico Inline**:
     Inserção imediata de Marca, Modelo ou Opcional sem sair da tela de cadastro de anúncio.
 11. **[RN011] Transparência e Disclaimer Legal de Financiamento**:
-    Toda simulação consulta a taxa da faixa correspondente em `BANCO_TAXA` e exibe aviso legal obrigatório informando que o resultado é uma estimativa referencial sujeita a consulta de CPF/score de crédito.
+    Toda simulação consulta a taxa da faixa correspondente em `bank_rates` e exibe aviso legal obrigatório informando que o resultado é uma estimativa referencial sujeita a consulta de CPF/score de crédito.
 12. **[RN012] Descentralização de Visitas de Pátio**:
     O veículo com agendamento ativo impede marcação concorrente no mesmo horário, e o cancelamento pode ser executado diretamente pelo vendedor no painel.
 
@@ -184,221 +184,221 @@ flowchart TD
 
 ```mermaid
 erDiagram
-    LOJA ||--o{ ANUNCIO : "pertence_a"
-    LOJA ||--o{ BANCO_FINANCIAMENTO : "trabalha_com"
-    BANCO_FINANCIAMENTO ||--|{ BANCO_TAXA : "possui_faixas"
-    USUARIO ||--o{ ANUNCIO : "cadastra"
-    USUARIO ||--o{ ANUNCIO : "vende"
-    USUARIO ||--o{ ANUNCIO_AUDITORIA : "audita"
-    USUARIO ||--o{ AGENDAMENTO_VISITA : "atende"
-    MARCA ||--|{ MODELO : "possui"
-    MODELO ||--o{ ANUNCIO : "especifica"
-    PROMOCAO ||--o{ ANUNCIO : "aplica_se"
-    ANUNCIO ||--|{ VEICULO_FOTO : "contem"
-    ANUNCIO ||--o{ VEICULO_OPCIONAL : "possui"
-    OPCIONAL ||--o{ VEICULO_OPCIONAL : "compoe"
-    ANUNCIO ||--o{ PROPOSTA_TROCA : "recebe"
-    ANUNCIO ||--o{ AGENDAMENTO_VISITA : "recebe"
-    ANUNCIO ||--o{ ANUNCIO_METRICA : "acumula"
-    HERO_BANNER }o--o| PROMOCAO : "direciona"
-    LEAD_INTERESSE }o--o| MODELO : "deseja"
+    STORES ||--o{ ADS : "belongs_to"
+    STORES ||--o{ FINANCING_BANKS : "works_with"
+    FINANCING_BANKS ||--|{ BANK_RATES : "has_rates"
+    USERS ||--o{ ADS : "registers"
+    USERS ||--o{ ADS : "sells"
+    USERS ||--o{ AD_AUDITS : "audits"
+    USERS ||--o{ VISIT_APPOINTMENTS : "attends"
+    BRANDS ||--|{ MODELS : "has"
+    MODELS ||--o{ ADS : "specifies"
+    PROMOTIONS ||--o{ ADS : "applies_to"
+    ADS ||--|{ VEHICLE_PHOTOS : "contains"
+    ADS ||--o{ VEHICLE_FEATURES : "has"
+    FEATURES ||--o{ VEHICLE_FEATURES : "composes"
+    ADS ||--o{ TRADE_IN_PROPOSALS : "receives"
+    ADS ||--o{ VISIT_APPOINTMENTS : "receives"
+    ADS ||--o{ AD_METRICS : "accumulates"
+    HERO_BANNERS }o--o| PROMOTIONS : "targets"
+    LEAD_INTERESTS }o--o| MODELS : "wants"
 
-    LOJA {
+    STORES {
         uuid id PK
-        string nome
-        string telefone
-        string endereco
+        string name
+        string phone
+        string address
         string cnpj
-        boolean ativo
+        boolean is_active
         timestamp created_at
     }
 
-    BANCO_FINANCIAMENTO {
+    FINANCING_BANKS {
         uuid id PK
-        uuid loja_id FK
-        string nome
-        int ordem
-        boolean ativo
+        uuid store_id FK
+        string name
+        int display_order
+        boolean is_active
         timestamp created_at
     }
 
-    BANCO_TAXA {
+    BANK_RATES {
         uuid id PK
-        uuid banco_id FK
-        int meses_de
-        int meses_ate
-        decimal taxa_juros_mes
+        uuid bank_id FK
+        int months_from
+        int months_to
+        decimal monthly_interest_rate
         timestamp created_at
     }
 
-    USUARIO {
+    USERS {
         uuid id PK
-        string nome
+        string name
         string email
-        string senha_hash
-        string telefone
+        string password_hash
+        string phone
         string role
-        decimal percentual_comissao
-        boolean ativo
+        decimal commission_rate
+        boolean is_active
         timestamp created_at
     }
 
-    MARCA {
+    BRANDS {
         int id PK
-        string nome
+        string name
     }
 
-    MODELO {
+    MODELS {
         int id PK
-        int marca_id FK
-        string nome
+        int brand_id FK
+        string name
     }
 
-    OPCIONAL {
+    FEATURES {
         int id PK
-        string nome
+        string name
     }
 
-    VEICULO_OPCIONAL {
-        uuid anuncio_id PK,FK
-        int opcional_id PK,FK
+    VEHICLE_FEATURES {
+        uuid ad_id PK,FK
+        int feature_id PK,FK
     }
 
-    PROMOCAO {
+    PROMOTIONS {
         uuid id PK
-        string nome
-        string descricao
-        date data_inicio
-        date data_fim
-        boolean ativo
+        string name
+        string description
+        date start_date
+        date end_date
+        boolean is_active
     }
 
-    ANUNCIO {
+    ADS {
         uuid id PK
-        uuid loja_id FK
-        uuid usuario_cadastro_id FK
-        uuid usuario_venda_id FK
-        int modelo_id FK
-        uuid promocao_id FK
-        string tipo_venda
-        string titulo
-        text descricao
-        decimal preco_venda
-        decimal preco_compra
-        decimal valor_proprietario
-        decimal taxa_comissao_loja
-        string proprietario_nome
-        string proprietario_contato
-        decimal valor_fipe
-        decimal entrada_minima
-        int parcelas_maximas
-        int ano_fabricacao
-        int ano_modelo
-        int quilometragem
-        string cambio
-        string cor
-        string categoria
-        string potencia
-        string combustivel
-        string direcao
-        int portas
-        string placa_completa
-        int final_placa
+        uuid store_id FK
+        uuid registered_by_user_id FK
+        uuid sold_by_user_id FK
+        int model_id FK
+        uuid promotion_id FK
+        string sale_type
+        string title
+        text description
+        decimal sale_price
+        decimal purchase_price
+        decimal owner_price
+        decimal store_commission_rate
+        string owner_name
+        string owner_contact
+        decimal fipe_price
+        decimal min_down_payment
+        int max_installments
+        int manufacture_year
+        int model_year
+        int mileage
+        string transmission
+        string color
+        string category
+        string horsepower
+        string fuel_type
+        string steering
+        int doors
+        string full_license_plate
+        int plate_last_digit
         string status
-        boolean visita_agendada
-        timestamp data_limite_reserva
+        boolean has_scheduled_visit
+        timestamp reservation_expires_at
         string video_url
-        string laudo_cautelar_url
-        int visualizacoes_total
-        timestamp data_venda
-        string cliente_comprador_nome
-        string cliente_comprador_contato
-        boolean venda_origem_site
+        string inspection_report_url
+        int total_views
+        timestamp sold_at
+        string buyer_name
+        string buyer_contact
+        boolean website_lead_origin
         timestamp created_at
         timestamp updated_at
     }
 
-    VEICULO_FOTO {
+    VEHICLE_PHOTOS {
         uuid id PK
-        uuid anuncio_id FK
-        string path_thumb
-        string path_full
-        int ordem
-        boolean principal
+        uuid ad_id FK
+        string thumb_path
+        string full_path
+        int display_order
+        boolean is_primary
         timestamp created_at
     }
 
-    AGENDAMENTO_VISITA {
+    VISIT_APPOINTMENTS {
         uuid id PK
-        uuid anuncio_id FK
-        uuid usuario_id FK
-        string cliente_nome
-        string cliente_contato
-        string canal_preferencial
-        timestamp data_hora
+        uuid ad_id FK
+        uuid user_id FK
+        string customer_name
+        string customer_contact
+        string preferred_channel
+        timestamp scheduled_at
         string status
-        text observacoes
+        text notes
         timestamp created_at
     }
 
-    PROPOSTA_TROCA {
+    TRADE_IN_PROPOSALS {
         uuid id PK
-        uuid anuncio_id FK
-        string nome_cliente
-        string telefone_cliente
-        string canal_preferencial
-        string turno_preferencial
-        string veiculo_marca
-        string veiculo_modelo
-        int veiculo_ano
-        int veiculo_km
-        decimal valor_pretendido
-        text observacoes
+        uuid ad_id FK
+        string customer_name
+        string customer_phone
+        string preferred_channel
+        string preferred_shift
+        string vehicle_brand
+        string vehicle_model
+        int vehicle_year
+        int vehicle_mileage
+        decimal intended_value
+        text notes
         string status
         timestamp created_at
     }
 
-    LEAD_INTERESSE {
+    LEAD_INTERESTS {
         uuid id PK
-        string nome_cliente
-        string telefone_cliente
-        string canal_preferencial
-        string turno_preferencial
-        int marca_id FK
-        int modelo_id FK
-        int ano_min
-        int ano_max
-        decimal preco_max
+        string customer_name
+        string customer_phone
+        string preferred_channel
+        string preferred_shift
+        int brand_id FK
+        int model_id FK
+        int min_year
+        int max_year
+        decimal max_price
         timestamp created_at
     }
 
-    ANUNCIO_METRICA {
+    AD_METRICS {
         uuid id PK
-        uuid anuncio_id FK
-        date data
-        int visualizacoes
-        int cliques_whatsapp
+        uuid ad_id FK
+        date recorded_date
+        int views_count
+        int whatsapp_clicks_count
     }
 
-    ANUNCIO_AUDITORIA {
+    AD_AUDITS {
         uuid id PK
-        uuid anuncio_id FK
-        uuid usuario_id FK
-        timestamp data_hora
-        string campo_alterado
-        string valor_antigo
-        string valor_novo
+        uuid ad_id FK
+        uuid user_id FK
+        timestamp changed_at
+        string changed_field
+        string old_value
+        string new_value
     }
 
-    HERO_BANNER {
+    HERO_BANNERS {
         uuid id PK
-        uuid promocao_id FK
-        string imagem_path
-        string titulo
-        string link_redirecionamento
-        int tempo_segundos
-        int ordem
-        boolean ativo
+        uuid promotion_id FK
+        string image_path
+        string title
+        string redirect_url
+        int duration_seconds
+        int display_order
+        boolean is_active
     }
 ```
 
@@ -407,8 +407,8 @@ erDiagram
 ### 7. Arquitetura Técnica
 
 - **Back-end (API REST)**: Node.js com TypeScript em arquitetura limpa (Controllers, Services, Repositories).
-- **Banco de Dados**: PostgreSQL com identificadores UUIDv4 e índices em `status`, `modelo_id`, `categoria`, `preco_venda`, `ano_modelo`, `tipo_venda` e `created_at`.
-- **Tabela Associativa N:N**: `VEICULO_OPCIONAL` indexada por chave composta (`anuncio_id`, `opcional_id`) para consultas de alta performance.
+- **Banco de Dados**: PostgreSQL com identificadores UUIDv4 e índices em `status`, `model_id`, `category`, `sale_price`, `model_year`, `sale_type` e `created_at`.
+- **Tabela Associativa N:N**: `vehicle_features` indexada por chave composta (`ad_id`, `feature_id`) para consultas de alta performance.
 - **Processamento de Mídias**: Sharp para conversão WebP, geração de `thumb` (400x300) e `full` (1280x960), com suporte a reordenação de índices e descarte de brutos.
 - **Documentos e PDFs**: Geração de Cartazes de Showroom em folha A4 com QR Code dinâmico via `pdfkit` / `puppeteer`.
 - **Front-end**: Framework SPA/SSR (Next.js) para renderização prévia de metatags OpenGraph e simulador financeiro interativo por faixas de prazo.
