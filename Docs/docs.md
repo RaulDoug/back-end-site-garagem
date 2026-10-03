@@ -184,22 +184,22 @@ flowchart TD
 
 ```mermaid
 erDiagram
-    STORES ||--o{ ADS : "belongs_to"
+    STORES ||--o{ VEHICLES : "belongs_to"
     STORES ||--o{ FINANCING_BANKS : "works_with"
     FINANCING_BANKS ||--|{ BANK_RATES : "has_rates"
-    USERS ||--o{ ADS : "registers"
-    USERS ||--o{ ADS : "sells"
-    USERS ||--o{ AD_AUDITS : "audits"
+    USERS ||--o{ VEHICLES : "registers"
+    USERS ||--o{ VEHICLES : "sells"
+    USERS ||--o{ VEHICLE_AUDITS : "audits"
     USERS ||--o{ VISIT_APPOINTMENTS : "attends"
     BRANDS ||--|{ MODELS : "has"
-    MODELS ||--o{ ADS : "specifies"
-    PROMOTIONS ||--o{ ADS : "applies_to"
-    ADS ||--|{ VEHICLE_PHOTOS : "contains"
-    ADS ||--o{ VEHICLE_FEATURES : "has"
+    MODELS ||--o{ VEHICLES : "specifies"
+    PROMOTIONS ||--o{ VEHICLES : "applies_to"
+    VEHICLES ||--|{ VEHICLE_PHOTOS : "contains"
+    VEHICLES ||--o{ VEHICLE_FEATURES : "has"
     FEATURES ||--o{ VEHICLE_FEATURES : "composes"
-    ADS ||--o{ TRADE_IN_PROPOSALS : "receives"
-    ADS ||--o{ VISIT_APPOINTMENTS : "receives"
-    ADS ||--o{ AD_METRICS : "accumulates"
+    VEHICLES ||--o{ TRADE_IN_PROPOSALS : "receives"
+    VEHICLES ||--o{ VISIT_APPOINTMENTS : "receives"
+    VEHICLES ||--o{ VEHICLE_METRICS : "accumulates"
     HERO_BANNERS }o--o| PROMOTIONS : "targets"
     LEAD_INTERESTS }o--o| MODELS : "wants"
 
@@ -260,7 +260,7 @@ erDiagram
     }
 
     VEHICLE_FEATURES {
-        uuid ad_id PK,FK
+        uuid vehicle_id PK,FK
         int feature_id PK,FK
     }
 
@@ -273,7 +273,7 @@ erDiagram
         boolean is_active
     }
 
-    ADS {
+    VEHICLES {
         uuid id PK
         uuid store_id FK
         uuid registered_by_user_id FK
@@ -320,7 +320,7 @@ erDiagram
 
     VEHICLE_PHOTOS {
         uuid id PK
-        uuid ad_id FK
+        uuid vehicle_id FK
         string thumb_path
         string full_path
         int display_order
@@ -330,7 +330,7 @@ erDiagram
 
     VISIT_APPOINTMENTS {
         uuid id PK
-        uuid ad_id FK
+        uuid vehicle_id FK
         uuid user_id FK
         string customer_name
         string customer_contact
@@ -343,7 +343,7 @@ erDiagram
 
     TRADE_IN_PROPOSALS {
         uuid id PK
-        uuid ad_id FK
+        uuid vehicle_id FK
         string customer_name
         string customer_phone
         string preferred_channel
@@ -372,17 +372,17 @@ erDiagram
         timestamp created_at
     }
 
-    AD_METRICS {
+    VEHICLE_METRICS {
         uuid id PK
-        uuid ad_id FK
+        uuid vehicle_id FK
         date recorded_date
         int views_count
         int whatsapp_clicks_count
     }
 
-    AD_AUDITS {
+    VEHICLE_AUDITS {
         uuid id PK
-        uuid ad_id FK
+        uuid vehicle_id FK
         uuid user_id FK
         timestamp changed_at
         string changed_field
@@ -408,7 +408,7 @@ erDiagram
 
 - **Back-end (API REST)**: Node.js com TypeScript em arquitetura limpa (Controllers, Services, Repositories).
 - **Banco de Dados**: PostgreSQL com identificadores UUIDv4 e índices em `status`, `model_id`, `category`, `sale_price`, `model_year`, `sale_type` e `created_at`.
-- **Tabela Associativa N:N**: `vehicle_features` indexada por chave composta (`ad_id`, `feature_id`) para consultas de alta performance.
+- **Tabela Associativa N:N**: `vehicle_features` indexada por chave composta (`vehicle_id`, `feature_id`) para consultas de alta performance.
 - **Processamento de Mídias**: Sharp para conversão WebP, geração de `thumb` (400x300) e `full` (1280x960), com suporte a reordenação de índices e descarte de brutos.
 - **Documentos e PDFs**: Geração de Cartazes de Showroom em folha A4 com QR Code dinâmico via `pdfkit` / `puppeteer`.
 - **Front-end**: Framework SPA/SSR (Next.js) para renderização prévia de metatags OpenGraph e simulador financeiro interativo por faixas de prazo.
