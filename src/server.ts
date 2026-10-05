@@ -1,28 +1,26 @@
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
-import cors from 'cors';
+import app from './app';
 import pool from './config/database';
 
-const app = express();
+
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json());
+async function main() {
+  try {
+    await pool.query('SELECT NOW()')
+      .then(() => console.log('PostgreSQL conectado com sucesso!'))
+      .catch((err) => console.error('Erro ao conectar ao PostgreSQL:', err));
 
-app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
-});
+    app.listen(PORT, () => {
+      console.log(`Servidor rodando em http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.log(error);
+  }
+}
 
-app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
+main();
 
-pool.query('SELECT NOW()')
-  .then(() => console.log('PostgreSQL conectado com sucesso!'))
-  .catch((err) => console.error('Erro ao conectar ao PostgreSQL:', err));
 
-export { app };
+
+

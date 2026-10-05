@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsx watch src/server.ts",
+    "test": "vitest",
+    "dev": "tsx --conditions development watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint .",
@@ -33,6 +33,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.6.3",
     "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
     "eslint": "^10.11.0",
     "globals": "^17.13.0",
     "supertest": "^7.3.0",
@@ -40,5 +41,47 @@
     "typescript": "~5.7.3",
     "typescript-eslint": "^8.71.0",
     "vitest": "^5.0.3"
+  },
+  "imports": {
+    "#services/*": {
+      "types": "./src/services/*",
+      "development": "./src/services/*",
+      "default": "./dist/services/*"
+    },
+    "#controllers/*": {
+      "types": "./src/controllers/*",
+      "development": "./src/controllers/*",
+      "default": "./dist/controllers/*"
+    },
+    "#routes/*": {
+      "types": "./src/routes/*",
+      "development": "./src/routes/*",
+      "default": "./dist/routes/*"
+    },
+    "#middlewares/*": {
+      "types": "./src/middlewares/*",
+      "development": "./src/middlewares/*",
+      "default": "./dist/middlewares/*"
+    },
+    "#repositories/*": {
+      "types": "./src/repositories/*",
+      "development": "./src/repositories/*",
+      "default": "./dist/repositories/*"
+    },
+    "#schemas/*": {
+      "types": "./src/schemas/*",
+      "development": "./src/schemas/*",
+      "default": "./dist/schemas/*"
+    },
+    "#utils/*": {
+      "types": "./src/utils/*",
+      "development": "./src/utils/*",
+      "default": "./dist/utils/*"
+    },
+    "#src/*": {
+      "types": "./src/*",
+      "development": "./src/*",
+      "default": "./dist/*"
+    }
   }
 }
