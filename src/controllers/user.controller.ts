@@ -1,10 +1,14 @@
 import { CreateUserInput, LoginUserInput } from '#schemas/user.schema.js';
+import type { User } from '#repositories/user.repository.js';
 import UserService from '#services/user.service.js';
 import { Request, Response } from 'express';
 import { ZodError } from 'zod';
+import { BaseController } from './base.controller';
 
-export default class UserController {
-  constructor(private userService = new UserService()) { }
+export default class UserController extends BaseController<User> {
+  constructor(private userService = new UserService()) {
+    super(userService);
+  }
 
   register = async (req: Request, res: Response) => {
     try {
@@ -62,7 +66,11 @@ export default class UserController {
 
       const user = await this.userService.findById(id as string);
 
-      return res.status(200).json({ userInfo: user });
+      if (!user) return res.status(404).json({ message: 'Registro não encontrado' });
+
+      const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line
+
+      return res.status(200).json({ userInfo: userWithoutPassword });
     } catch (error) {
       console.log(error);
 

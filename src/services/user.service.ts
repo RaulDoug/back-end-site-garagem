@@ -1,15 +1,18 @@
-import { User, UserRepository } from '#repositories/user.repository.js';
+import { User, userRepository } from '#repositories/user.repository.js';
 import { CreateUserInput, LoginUserInput } from '#schemas/user.schema.js';
 import { generateToken } from '#utils/jwt.util.js';
 import { comparePassword, hashPassword } from '../utils/hash.util';
+import { BaseService } from './base.service';
 
-export default class UserService {
-  constructor(private userRepository = new UserRepository()) { };
+export default class UserService extends BaseService<User> {
+  constructor(private userRepo = userRepository) {
+    super(userRepo);
+  };
 
   async create(data: CreateUserInput): Promise<Omit<User, 'password_hash'>> {
     const { password, ...dataWithoutPass } = data;
 
-    const existingUser = await this.userRepository.findByEmail(dataWithoutPass.email);
+    const existingUser = await this.userRepo.findByEmail(dataWithoutPass.email);
 
     if (existingUser !== null) {
       throw new Error('E-mail já cadastrado');
@@ -22,7 +25,7 @@ export default class UserService {
       password_hash: hashedPassword,
     };
 
-    const result = await this.userRepository.create(payload);
+    const result = await this.userRepo.create(payload);
 
     const { password_hash, ...userWithoutPassword } = result; // eslint-disable-line
 
@@ -32,7 +35,7 @@ export default class UserService {
   async login(data: LoginUserInput): Promise<{ token: string; user: Omit<User, 'password_hash'> }> {
     const { email, password } = data;
 
-    const user = await this.userRepository.findByEmail(email);
+    const user = await this.userRepo.findByEmail(email);
 
     const isMatch = user ? await comparePassword(password, user.password_hash) : false;
 
@@ -56,17 +59,5 @@ export default class UserService {
     };
 
     return response;
-  }
-
-  async findById(id: string): Promise<Omit<User, 'password_hash'>> {
-    const user = await this.userRepository.findById(id);
-
-    if (user === null) {
-      throw new Error('Usuário inexistente.');
-    }
-
-    const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line
-
-    return userWithoutPassword;
   }
 };
