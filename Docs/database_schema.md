@@ -14,7 +14,6 @@ erDiagram
     USERS ||--o{ VEHICLES : "registers"
     USERS ||--o{ VEHICLES : "sells"
     USERS ||--o{ VEHICLE_AUDITS : "audits"
-    USERS ||--o{ VISIT_APPOINTMENTS : "attends"
     BRANDS ||--|{ MODELS : "has"
     MODELS ||--o{ VEHICLES : "specifies"
     PROMOTIONS ||--o{ VEHICLES : "applies_to"
@@ -22,7 +21,6 @@ erDiagram
     VEHICLES ||--o{ VEHICLE_FEATURES : "has"
     FEATURES ||--o{ VEHICLE_FEATURES : "composes"
     VEHICLES ||--o{ TRADE_IN_PROPOSALS : "receives"
-    VEHICLES ||--o{ VISIT_APPOINTMENTS : "receives"
     VEHICLES ||--o{ VEHICLE_METRICS : "accumulates"
     HERO_BANNERS }o--o| PROMOTIONS : "targets"
     LEAD_INTERESTS }o--o| MODELS : "wants"
@@ -129,7 +127,6 @@ erDiagram
         varchar_10 full_license_plate "NOT NULL"
         int plate_last_digit "NOT NULL"
         varchar_25 status "NOT NULL, DEFAULT 'ATIVO'"
-        boolean has_scheduled_visit "NOT NULL, DEFAULT false"
         timestamp reservation_expires_at "NULLABLE"
         varchar_255 video_url "NULLABLE"
         varchar_255 inspection_report_url "NULLABLE"
@@ -149,19 +146,6 @@ erDiagram
         varchar_255 full_path "NOT NULL"
         int display_order "NOT NULL, DEFAULT 0"
         boolean is_primary "NOT NULL, DEFAULT false"
-        timestamp created_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP"
-    }
-
-    VISIT_APPOINTMENTS {
-        uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
-        uuid vehicle_id FK "NOT NULL"
-        uuid user_id FK "NULLABLE"
-        varchar_150 customer_name "NOT NULL"
-        varchar_50 customer_contact "NOT NULL"
-        varchar_30 preferred_channel "NOT NULL"
-        timestamp scheduled_at "NOT NULL"
-        varchar_25 status "NOT NULL, DEFAULT 'AGENDADO'"
-        text notes "NULLABLE"
         timestamp created_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP"
     }
 
@@ -241,9 +225,8 @@ erDiagram
 | **FEATURES** | `id` (INT GENERATED) | - | `name` (UNIQUE) |
 | **VEHICLE_FEATURES** | Composta (`vehicle_id`, `feature_id`) | `vehicle_id` -> `VEHICLES(id)`, `feature_id` -> `FEATURES(id)` | Ambos compõem PK e são `NOT NULL` |
 | **PROMOTIONS** | `id` (UUID) | - | `name`, `start_date`, `end_date`, `is_active` |
-| **VEHICLES** | `id` (UUID) | `store_id`, `registered_by_user_id`, `sold_by_user_id`, `model_id`, `promotion_id` | `store_id`, `registered_by_user_id`, `model_id`, `sale_type`, `title`, `sale_price`, `manufacture_year`, `model_year`, `mileage`, `transmission`, `color`, `category`, `fuel_type`, `doors`, `full_license_plate`, `plate_last_digit`, `status`, `has_scheduled_visit`, `total_views`, `created_at`, `updated_at` |
+| **VEHICLES** | `id` (UUID) | `store_id`, `registered_by_user_id`, `sold_by_user_id`, `model_id`, `promotion_id` | `store_id`, `registered_by_user_id`, `model_id`, `sale_type`, `title`, `sale_price`, `manufacture_year`, `model_year`, `mileage`, `transmission`, `color`, `category`, `fuel_type`, `doors`, `full_license_plate`, `plate_last_digit`, `status`, `total_views`, `created_at`, `updated_at` |
 | **VEHICLE_PHOTOS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` | `vehicle_id`, `thumb_path`, `full_path`, `display_order`, `is_primary`, `created_at` |
-| **VISIT_APPOINTMENTS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)`, `user_id` -> `USERS(id)` | `vehicle_id`, `customer_name`, `customer_contact`, `preferred_channel`, `scheduled_at`, `status`, `created_at` |
 | **TRADE_IN_PROPOSALS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` | `vehicle_id`, `customer_name`, `customer_phone`, `preferred_channel`, `preferred_shift`, `vehicle_brand`, `vehicle_model`, `vehicle_year`, `vehicle_mileage`, `status`, `created_at` |
 | **LEAD_INTERESTS** | `id` (UUID) | `brand_id` -> `BRANDS(id)`, `model_id` -> `MODELS(id)` | `customer_name`, `customer_phone`, `preferred_channel`, `preferred_shift`, `created_at` |
 | **VEHICLE_METRICS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` | `vehicle_id`, `recorded_date`, `views_count`, `whatsapp_clicks_count` |
