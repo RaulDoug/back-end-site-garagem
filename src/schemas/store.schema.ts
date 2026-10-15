@@ -1,6 +1,5 @@
 import { validateCnpj } from '#utils/cnpj.util.js';
 import { z } from 'zod';
-import { updateUserSchema } from './user.schema';
 
 const idValidation = z.string().uuid('Id da loja inválido');
 const nameValidation = z.string().trim().min(2, 'O nome da loja cadastrada deve ter no mínimo 2 caracteres').max(255);
@@ -17,7 +16,7 @@ const addressValidation = z.object({
   zip_code: z.string().regex(/^\d{5}-?\d{3}$/, 'CEP inválido'),
 });
 const cnpjValidation = z.string().refine(validateCnpj, { message: 'CNPJ inválido' });
-const isActiveValidation = z.boolean().optional();
+const isActiveValidation = z.preprocess((val) => (val === 'true' ? true : val === 'false' ? false : val), z.boolean().optional());
 
 
 const storeBodySchema = z.object({
@@ -45,7 +44,7 @@ export const deleteStoreSchema = z.object({
 });
 
 export const findByIdStoreSchema = z.object({
-  query: z.object({ id: idValidation })
+  params: z.object({ id: idValidation })
 });
 
 export const findStoreSchema = z.object({
@@ -57,7 +56,7 @@ export const findStoreSchema = z.object({
 
 // Exportação de tipos
 export type CreateStoreInput = z.infer<typeof createStoreSchema>['body'];
-export type UpdateStoreParams = z.infer<typeof updateUserSchema>['params'];
+export type UpdateStoreParams = z.infer<typeof updateStoreSchema>['params'];
 export type UpdateStoreBody = z.infer<typeof updateStoreSchema>['body'];
-export type FindStoreInput = z.infer<typeof findByIdStoreSchema>['query'];
+export type FindStoreInput = z.infer<typeof findByIdStoreSchema>['params'];
 export type AddressInput = z.infer<typeof addressValidation>;

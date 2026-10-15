@@ -1,12 +1,12 @@
 import { BaseService } from '#services/base.service.js';
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import type { QueryResultRow } from 'pg';
 
 
 export abstract class BaseController<T extends QueryResultRow> {
   constructor(protected readonly service: BaseService<T>) { }
 
-  findById = async (req: Request, res: Response) => {
+  findById = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
 
@@ -19,11 +19,11 @@ export abstract class BaseController<T extends QueryResultRow> {
       return res.status(200).json({ result });
     } catch (error) {
       console.log(error);
-      return res.status(500).json({ message: 'Erro interno do servidor' });
+      return next(error);
     }
   };
 
-  find = async (req: Request, res: Response) => {
+  find = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = req.query;
 
@@ -32,11 +32,11 @@ export abstract class BaseController<T extends QueryResultRow> {
       return res.status(200).json({ result });
     } catch (error) {
       console.log(error);
-      return res.status(500).json({ message: 'Erro interno do servidor' });
+      return next(error);
     }
   };
 
-  delete = async (req: Request, res: Response) => {
+  delete = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
 
@@ -49,7 +49,7 @@ export abstract class BaseController<T extends QueryResultRow> {
       return res.status(200).json({ result });
     } catch (error) {
       console.log(error);
-      return res.status(500).json({ message: 'Erro interno do servidor' });
+      return next(error);
     }
   };
 }

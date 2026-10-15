@@ -1,7 +1,7 @@
 import { CreateUserInput, LoginUserInput } from '#schemas/user.schema.js';
 import type { User } from '#repositories/user.repository.js';
 import UserService from '#services/user.service.js';
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { BaseController } from './base.controller';
 
@@ -10,7 +10,7 @@ export default class UserController extends BaseController<User> {
     super(userService);
   }
 
-  register = async (req: Request, res: Response) => {
+  register = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data: CreateUserInput = req.body;
 
@@ -22,20 +22,11 @@ export default class UserController extends BaseController<User> {
       });
     } catch (error) {
       console.log(error);
-
-      if (error instanceof ZodError) {
-        return res.status(400).json({ message: error.message });
-      }
-
-      if (error instanceof Error && error.message === 'E-mail já cadastrado') {
-        return res.status(409).json({ message: error.message });
-      }
-
-      return res.status(500).json({ message: 'Erro interno do servidor' });
+      return next(error);
     }
   };
 
-  login = async (req: Request, res: Response) => {
+  login = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data: LoginUserInput = req.body;
 
@@ -47,20 +38,11 @@ export default class UserController extends BaseController<User> {
       });
     } catch (error) {
       console.log(error);
-
-      if (error instanceof ZodError) {
-        return res.status(400).json({ message: error.message });
-      }
-
-      if (error instanceof Error && error.message === 'Credenciais inválidas') {
-        return res.status(401).json({ message: error.message });
-      }
-
-      return res.status(500).json({ message: 'Erro interno do servidor' });
+      return next(error);
     }
   };
 
-  findById = async (req: Request, res: Response) => {
+  findById = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
 
@@ -73,16 +55,7 @@ export default class UserController extends BaseController<User> {
       return res.status(200).json({ userInfo: userWithoutPassword });
     } catch (error) {
       console.log(error);
-
-      if (error instanceof ZodError) {
-        return res.status(400).json({ message: error.message });
-      }
-
-      if (error instanceof Error && error.message === 'Credenciais inválidas') {
-        return res.status(401).json({ message: error.message });
-      }
-
-      return res.status(500).json({ message: 'Erro interno do servidor' });
+      return next(error);
     }
   };
 }

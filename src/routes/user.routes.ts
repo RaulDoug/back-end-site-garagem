@@ -8,7 +8,7 @@ import { createUserSchema, findByIdUserSchema, loginUserSchema } from '#schemas/
 const router = Router();
 const userController = new UserController();
 
-router.post('/register', registerLimit, validate(createUserSchema), userController.register);
+router.post('/', registerLimit, validate(createUserSchema), authenticateJWT, authorizeRoles('ADMIN'), userController.register);
 router.post('/login', loginLimit, validate(loginUserSchema), userController.login);
 router.get('/:id', validate(findByIdUserSchema), authenticateJWT, authorizeRoles('ADMIN', 'VENDEDOR'), userController.findById);
 

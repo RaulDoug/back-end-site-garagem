@@ -164,7 +164,7 @@ describe('StoreService', () => {
 
       expect(mockStoreRepository.findById).toHaveBeenCalledWith('store-uuid-123');
       expect(mockStoreRepository.update).toHaveBeenCalledWith('store-uuid-123', { name: 'Garagem Nova' });
-      expect(result).toEqual(updatedStore);
+      expect(result).toEqual({ updated: true, store: updatedStore });
     });
 
     it('deve formatar o endereço e atualizar quando um novo endereço for informado', async () => {
@@ -184,7 +184,7 @@ describe('StoreService', () => {
       const result = await storeService.update('store-uuid-123', { address: newAddress });
 
       expect(mockStoreRepository.update).toHaveBeenCalledWith('store-uuid-123', { address: formattedAddress });
-      expect(result).toEqual(updatedStore);
+      expect(result).toEqual({ updated: true, store: updatedStore });
     });
 
     it('deve retornar a loja existente sem chamar o update se nenhum campo for alterado (idempotência)', async () => {
@@ -194,7 +194,7 @@ describe('StoreService', () => {
 
       expect(mockStoreRepository.findById).toHaveBeenCalledWith('store-uuid-123');
       expect(mockStoreRepository.update).not.toHaveBeenCalled();
-      expect(result).toEqual(existingStore);
+      expect(result).toEqual({ updated: false, store: existingStore });
     });
 
     it('deve lançar erro se a loja não for localizada', async () => {

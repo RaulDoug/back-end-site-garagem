@@ -2,6 +2,7 @@ import { Store, storeRepository } from '#repositories/store.repository.js';
 import { CreateStoreInput, UpdateStoreBody } from '#schemas/store.schema.js';
 import { buildAddress } from '#utils/utils.js';
 import { BaseService } from './base.service';
+import AppError from '#src/errors/AppError.js';
 
 export default class StoreService extends BaseService<Store> {
   constructor(private storeRepo = storeRepository) {
@@ -14,7 +15,7 @@ export default class StoreService extends BaseService<Store> {
     const cnpj = await this.storeRepo.findCnpj(payload.cnpj);
 
     if (cnpj !== null) {
-      throw new Error('CNPJ já cadastrado');
+      throw new AppError('CNPJ já cadastrado', 409);
     }
 
     const addressToUse = buildAddress(address);
@@ -22,13 +23,13 @@ export default class StoreService extends BaseService<Store> {
     return await this.storeRepo.create({ address: addressToUse, ...payload });
   }
 
-  async update(id: string, data: UpdateStoreBody): Promise<Store> {
+  async update(id: string, data: UpdateStoreBody): Promise<{ updated: boolean, store: Store }> {
     const { address, ...dataWithoutAddress } = data;
 
     const store = await this.storeRepo.findById(id);
 
     if (store === null) {
-      throw new Error('Nenhum cadastro de loja localizado para o ID informado');
+      throw new AppError('Nenhum cadastro de loja localizado para o ID informado', 404);
     }
 
     const addressToUse = address ? buildAddress(address) : undefined;
@@ -50,18 +51,26 @@ export default class StoreService extends BaseService<Store> {
       }
     }
 
-    if (Object.keys(fieldsToUpdate).length === 0) return store;
+    if (Object.keys(fieldsToUpdate).length === 0) {
+      return {
+        updated: false,
+        store
+      };
+    };
 
     if (fieldsToUpdate.cnpj) {
       const cnpj = await this.storeRepo.findCnpj(fieldsToUpdate.cnpj as string);
 
-      if (cnpj !== null) throw new Error('CNPJ já cadastrado');
+      if (cnpj !== null) throw new AppError('CNPJ já cadastrado', 409);
     }
 
     const result = await this.storeRepo.update(id, fieldsToUpdate);
 
-    if (result === null) throw new Error('Falha ao atualizar o cadastro');
+    if (result === null) throw new AppError('Falha ao atualizar o cadastro', 500);
 
-    return result;
+    return {
+      updated: true,
+      store: result,
+    };
   };
 }

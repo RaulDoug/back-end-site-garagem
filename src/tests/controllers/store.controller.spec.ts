@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import StoreController from '#controllers/store.controller.js';
+import AppError from '#src/errors/AppError.js';
 
 describe('StoreController', () => {
   const mockStoreService = {
@@ -9,6 +10,7 @@ describe('StoreController', () => {
     findById: vi.fn(),
     find: vi.fn(),
     delete: vi.fn(),
+    update: vi.fn(),
   };
 
   let storeController: StoreController;
@@ -27,6 +29,8 @@ describe('StoreController', () => {
       query,
     } as unknown as Request;
   };
+
+  const next = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -64,7 +68,7 @@ describe('StoreController', () => {
 
       mockStoreService.create.mockResolvedValue(createdStore);
 
-      await storeController.create(req, res);
+      await storeController.create(req, res, next);
 
       expect(mockStoreService.create).toHaveBeenCalledWith(req.body);
       expect(res.status).toHaveBeenCalledWith(201);
@@ -77,36 +81,40 @@ describe('StoreController', () => {
     it('deve retornar 409 quando o CNPJ já estiver cadastrado', async () => {
       const req = mockRequest(storeBody);
       const res = mockResponse();
+      const error = new AppError('CNPJ já cadastrado', 409);
 
-      mockStoreService.create.mockRejectedValue(new Error('CNPJ já cadastrado'));
+      mockStoreService.create.mockRejectedValue(error);
 
-      await storeController.create(req, res);
+      await storeController.create(req, res, next);
 
-      expect(res.status).toHaveBeenCalledWith(409);
-      expect(res.json).toHaveBeenCalledWith({ message: 'CNPJ já cadastrado' });
+      expect(next).toHaveBeenCalledWith(error);
+      expect(res.status).not.toHaveBeenCalled();
     });
 
     it('deve retornar 400 em caso de erro de validação Zod', async () => {
       const req = mockRequest({});
       const res = mockResponse();
+      const zodError = new ZodError([]);
 
-      mockStoreService.create.mockRejectedValue(new ZodError([]));
+      mockStoreService.create.mockRejectedValue(zodError);
 
-      await storeController.create(req, res);
+      await storeController.create(req, res, next);
 
-      expect(res.status).toHaveBeenCalledWith(400);
+      expect(next).toHaveBeenCalledWith(zodError);
+      expect(res.status).not.toHaveBeenCalled();
     });
 
     it('deve retornar 500 em erro interno inesperado', async () => {
       const req = mockRequest(storeBody);
       const res = mockResponse();
+      const error = new AppError('Erro no banco', 500);
 
-      mockStoreService.create.mockRejectedValue(new Error('Erro no banco'));
+      mockStoreService.create.mockRejectedValue(error);
 
-      await storeController.create(req, res);
+      await storeController.create(req, res, next);
 
-      expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ message: 'Erro interno do servidor' });
+      expect(next).toHaveBeenCalledWith(error);
+      expect(res.status).not.toHaveBeenCalled();
     });
   });
 
@@ -122,7 +130,7 @@ describe('StoreController', () => {
       };
       mockStoreService.findById.mockResolvedValue(store);
 
-      await storeController.findById(req, res);
+      await storeController.findById(req, res, next);
 
       expect(mockStoreService.findById).toHaveBeenCalledWith('store-uuid-1');
       expect(res.status).toHaveBeenCalledWith(200);
@@ -135,22 +143,24 @@ describe('StoreController', () => {
 
       mockStoreService.findById.mockResolvedValue(null);
 
-      await storeController.findById(req, res);
+      await storeController.findById(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith({ message: 'Registro não encontrado' });
+      expect(next).not.toHaveBeenCalled();
     });
 
     it('deve retornar 500 em caso de erro interno', async () => {
       const req = mockRequest({}, { id: 'store-uuid-1' });
       const res = mockResponse();
+      const error = new AppError('Erro interno do servidor', 500);
 
-      mockStoreService.findById.mockRejectedValue(new Error('Falha no banco'));
+      mockStoreService.findById.mockRejectedValue(error);
 
-      await storeController.findById(req, res);
+      await storeController.findById(req, res, next);
 
-      expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ message: 'Erro interno do servidor' });
+      expect(next).toHaveBeenCalledWith(error);
+      expect(res.status).not.toHaveBeenCalled();
     });
   });
 
@@ -162,23 +172,37 @@ describe('StoreController', () => {
       const storesList = [{ id: 'store-uuid-1', name: 'Loja 1' }];
       mockStoreService.find.mockResolvedValue(storesList);
 
-      await storeController.find(req, res);
+      await storeController.find(req, res, next);
 
       expect(mockStoreService.find).toHaveBeenCalledWith(req.query);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ result: storesList });
     });
 
+    it('deve retornar 200 com array vazio quando nenhuma loja for encontrada', async () => {
+      const req = mockRequest({}, {}, { name: 'Inexistente' });
+      const res = mockResponse();
+
+      mockStoreService.find.mockResolvedValue([]);
+
+      await storeController.find(req, res, next);
+
+      expect(mockStoreService.find).toHaveBeenCalledWith(req.query);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ result: [] });
+    });
+
     it('deve retornar 500 em caso de erro interno na listagem', async () => {
       const req = mockRequest();
       const res = mockResponse();
+      const error = new AppError('Erro interno do servidor', 500);
 
-      mockStoreService.find.mockRejectedValue(new Error('Falha ao listar'));
+      mockStoreService.find.mockRejectedValue(error);
 
-      await storeController.find(req, res);
+      await storeController.find(req, res, next);
 
-      expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ message: 'Erro interno do servidor' });
+      expect(next).toHaveBeenCalledWith(error);
+      expect(res.status).not.toHaveBeenCalled();
     });
   });
 
@@ -190,7 +214,7 @@ describe('StoreController', () => {
       const deletedStore = { id: 'store-uuid-1', name: 'Loja Deletada' };
       mockStoreService.delete.mockResolvedValue(deletedStore);
 
-      await storeController.delete(req, res);
+      await storeController.delete(req, res, next);
 
       expect(mockStoreService.delete).toHaveBeenCalledWith('store-uuid-1');
       expect(res.status).toHaveBeenCalledWith(200);
@@ -203,10 +227,135 @@ describe('StoreController', () => {
 
       mockStoreService.delete.mockResolvedValue(null);
 
-      await storeController.delete(req, res);
+      await storeController.delete(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith({ message: 'Registro não encontrado' });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('deve retornar 500 em caso de erro interno na deleção', async () => {
+      const req = mockRequest({}, { id: 'store-uuid-1' });
+      const res = mockResponse();
+      const error = new AppError('Falha no banco ao deletar', 500);
+
+      mockStoreService.delete.mockRejectedValue(error);
+
+      await storeController.delete(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('update', () => {
+    const updateBody = {
+      name: 'Garagem Veículos Atualizada',
+      phone: '(37) 98888-8888',
+    };
+
+    it('deve retornar 200 e a loja atualizada quando os dados forem válidos', async () => {
+      const req = mockRequest(updateBody, { id: 'store-uuid-1' });
+      const res = mockResponse();
+
+      const updatedStore = {
+        id: 'store-uuid-1',
+        name: updateBody.name,
+        phone: updateBody.phone,
+        cnpj: '00.000.000/0001-91',
+        address: 'Avenida Brasil, 100 - Centro, Divinópolis/MG',
+        is_active: true,
+        created_at: new Date(),
+      };
+
+      mockStoreService.update.mockResolvedValue({ updated: true, store: updatedStore });
+
+      await storeController.update(req, res, next);
+
+      expect(mockStoreService.update).toHaveBeenCalledWith('store-uuid-1', req.body);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Loja atualizada com sucesso!',
+        store: updatedStore,
+      });
+    });
+
+    it('deve retornar 200 com mensagem de nenhuma alteração quando os dados forem idênticos', async () => {
+      const req = mockRequest(updateBody, { id: 'store-uuid-1' });
+      const res = mockResponse();
+
+      const existingStore = {
+        id: 'store-uuid-1',
+        name: updateBody.name,
+        phone: updateBody.phone,
+        cnpj: '00.000.000/0001-91',
+        address: 'Avenida Brasil, 100 - Centro, Divinópolis/MG',
+        is_active: true,
+        created_at: new Date(),
+      };
+
+      mockStoreService.update.mockResolvedValue({ updated: false, store: existingStore });
+
+      await storeController.update(req, res, next);
+
+      expect(mockStoreService.update).toHaveBeenCalledWith('store-uuid-1', req.body);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Nenhuma informação atualizada',
+        store: existingStore,
+      });
+    });
+
+    it('deve retornar 404 quando a loja não for encontrada para atualização', async () => {
+      const req = mockRequest(updateBody, { id: 'uuid-inexistente' });
+      const res = mockResponse();
+      const error = new AppError('Nenhum cadastro de loja localizado para o ID informado', 404);
+
+      mockStoreService.update.mockRejectedValue(error);
+
+      await storeController.update(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('deve retornar 409 quando o novo CNPJ já estiver cadastrado', async () => {
+      const req = mockRequest({ cnpj: '11.111.111/0001-11' }, { id: 'store-uuid-1' });
+      const res = mockResponse();
+      const error = new AppError('CNPJ já cadastrado', 409);
+
+      mockStoreService.update.mockRejectedValue(error);
+
+      await storeController.update(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('deve retornar 400 em caso de erro de validação Zod', async () => {
+      const req = mockRequest({ phone: 'formato-invalido' }, { id: 'store-uuid-1' });
+      const res = mockResponse();
+      const zodError = new ZodError([]);
+
+      mockStoreService.update.mockRejectedValue(zodError);
+
+      await storeController.update(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(zodError);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('deve retornar 500 em erro interno inesperado na atualização', async () => {
+      const req = mockRequest(updateBody, { id: 'store-uuid-1' });
+      const res = mockResponse();
+      const error = new AppError('Erro no banco', 500);
+
+      mockStoreService.update.mockRejectedValue(error);
+
+      await storeController.update(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+      expect(res.status).not.toHaveBeenCalled();
     });
   });
 });
