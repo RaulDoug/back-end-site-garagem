@@ -70,8 +70,8 @@ export default class UserController {
         return res.status(400).json({ message: error.message });
       }
 
-      if (error instanceof Error && error.message === 'Credenciais inválidas') {
-        return res.status(401).json({ message: error.message });
+      if (error instanceof Error && error.message === 'Usuário inexistente.') {
+        return res.status(404).json({ message: error.message });
       }
 
       return res.status(500).json({ message: 'Erro interno do servidor' });

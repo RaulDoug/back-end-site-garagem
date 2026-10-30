@@ -133,6 +133,11 @@ CREATE TYPE lead_preferred_channel_type AS ENUM ('WHATSAPP', 'LIGACAO', 'EMAIL')
 CREATE TYPE lead_preferred_shift_type AS ENUM ('MANHA', 'TARDE', 'NOITE');
 
 -------------------------------------------------
+-- Enum de status para leads interesse (lead_interests)
+-------------------------------------------------
+CREATE TYPE lead_status_type AS ENUM ('PENDENTE', 'EM_ATENDIMENTO', 'CONVERTIDO', 'ARQUIVADO');
+
+-------------------------------------------------
 -- Tabela de lead interessado (lead_interests) - quer models
 -------------------------------------------------
 
@@ -142,12 +147,16 @@ CREATE TABLE lead_interests (
   customer_phone VARCHAR(255) NOT NULL,
   preferred_channel lead_preferred_channel_type DEFAULT 'WHATSAPP',
   preferred_shift lead_preferred_shift_type DEFAULT 'TARDE',
-  brand_id UUID NOT NULL,
-  model_id UUID NOT NULL,
-  min_year INTEGER NOT NULL,
-  max_year INTEGER NOT NULL,
-  max_price DECIMAL(10, 2) NOT NULL,
+  vehicle_id UUID,
+  brand_id UUID,
+  model_id UUID,
+  min_year INTEGER,
+  max_year INTEGER,
+  max_price DECIMAL(10, 2),
+  status lead_status_type DEFAULT 'PENDENTE',
+  notes TEXT,
   created_at TIMESTAMP DEFAULT now(),
+  CONSTRAINT fk_vehicle_lead_interest FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
   CONSTRAINT fk_brand_lead_interest FOREIGN KEY (brand_id) REFERENCES brands(id),
   CONSTRAINT fk_model_lead_interest FOREIGN KEY (model_id) REFERENCES models(id)
 );
@@ -213,7 +222,6 @@ CREATE TABLE vehicles (
   full_license_plate VARCHAR(10) NOT NULL,
   plate_last_digit INTEGER NOT NULL,
   status vehicle_status_types DEFAULT 'ATIVO',
-  has_scheduled_visit BOOLEAN DEFAULT false,
   reservation_expires_at TIMESTAMP,
   video_url VARCHAR(255),
   inspection_report_url VARCHAR(255),
@@ -244,30 +252,6 @@ CREATE TABLE vehicle_photos (
   is_primary BOOLEAN,
   created_at TIMESTAMP DEFAULT now(),
   CONSTRAINT fk_vehicle_photo FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
-);
-
--------------------------------------------------
--- Enum de status para agendamento de visitas do veículos para tabela visit_appointments 
--------------------------------------------------
-CREATE TYPE visit_appointment_status_types AS ENUM ('PENDENTE', 'AGENDADO', 'REALIZADO', 'CANCELADO', 'NAO_APARECEU');
-
--------------------------------------------------
--- Tabela de agendametno de visitas (visit_appointments)
--------------------------------------------------
-
-CREATE TABLE visit_appointments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  vehicle_id UUID NOT NULL,
-  user_id UUID,
-  customer_name VARCHAR(255) NOT NULL,
-  customer_contact VARCHAR(255) NOT NULL,
-  preferred_channel lead_preferred_channel_type DEFAULT 'WHATSAPP',
-  scheduled_at TIMESTAMP,
-  status visit_appointment_status_types DEFAULT 'PENDENTE',
-  notes TEXT,
-  created_at TIMESTAMP DEFAULT now(),
-  CONSTRAINT fk_vehicle_visit_appointments FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
-  CONSTRAINT fk_users_visit_appointments FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 -------------------------------------------------
