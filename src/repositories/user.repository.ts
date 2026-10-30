@@ -9,6 +9,7 @@ export interface User {
   role: 'ADMIN' | 'VENDEDOR' | 'VISUALIZADOR' | 'PUBLICO';
   commission_rates: number | null;
   is_active: boolean;
+  deleted_at: Date | null;
   created_at: Date;
 }
 
@@ -23,21 +24,26 @@ export interface CreateUserData {
 
 export class UserRepository {
   async findByEmail(email: string): Promise<User | null> {
-    const query = 'SELECT * FROM users WHERE email = $1 LIMIT 1;';
+    const query = 'SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1;';
     const result = await pool.query<User>(query, [email]);
 
     return result.rows[0] || null;
   }
 
   async findById(id: string): Promise<User | null> {
-    const query = 'SELECT * from users WHERE id = $1 LIMIT 1;';
+    const query = 'SELECT * from users WHERE id = $1 AND deleted_at IS NULL LIMIT 1;';
     const result = await pool.query<User>(query, [id]);
 
     return result.rows[0] || null;
   }
 
-  async findAll(): Promise<User[]> {
-    const query = 'SELECT * FROM users;';
+  async findAll(include_deleted: boolean): Promise<User[]> {
+    let query = 'SELECT * FROM users';
+
+    if (!include_deleted) {
+      query += ' WHERE deleted_at IS NULL';
+    }
+
     const result = await pool.query<User>(query);
 
     return result.rows;
@@ -90,7 +96,12 @@ export class UserRepository {
   }
 
   async delete(id: string): Promise<User | null> {
-    const query = 'DELETE FROM users WHERE id = $1 RETURNING *;';
+    const query = `
+      UPDATE users
+      SET deleted_at = NOW(), is_active = false
+      WHERE id = $1
+      RETURNING *;
+    `;
 
     const result = await pool.query<User>(query, [id]);
 

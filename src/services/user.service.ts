@@ -1,5 +1,5 @@
 import { User, UserRepository } from '#repositories/user.repository.js';
-import { CreateUserInput, LoginUserInput } from '#schemas/user.schema.js';
+import { CreateUserInput, LoginUserInput, UpdateUserBody } from '#schemas/user.schema.js';
 import { generateToken } from '#utils/jwt.util.js';
 import { comparePassword, hashPassword } from '../utils/hash.util';
 
@@ -70,12 +70,45 @@ export default class UserService {
     return userWithoutPassword;
   }
 
-  async findAll(): Promise<Omit<User, 'password_hash'>[]> {
-    const users = await this.userRepository.findAll();
+  async findAll(include_deleted: boolean, role: string): Promise<Omit<User, 'password_hash'>[]> {
+
+    const includeDeleted = role === 'ADMIN' ? include_deleted : false;
+
+    const users = await this.userRepository.findAll(includeDeleted);
 
     return users.map((user) => {
       const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line
       return userWithoutPassword;
     });
+  }
+
+  async update(id: string, data: UpdateUserBody): Promise<Omit<User, 'password_hash'>> {
+    const existingUser = await this.userRepository.findById(id);
+
+    if (existingUser === null) {
+      throw new Error('Usuário inexistente.');
+    }
+
+    const updatedUser = await this.userRepository.update(id, data);
+
+    if (updatedUser === null) {
+      throw new Error('Nenhum campo informado para atualização.');
+    }
+
+    const { password_hash, ...userWithoutPassword } = updatedUser; // eslint-disable-line
+
+    return userWithoutPassword;
+  }
+
+  async delete(id: string): Promise<Omit<User, 'password_hash'>> {
+    const user = await this.userRepository.delete(id);
+
+    if (user === null) {
+      throw new Error('Usuário inexistente.');
+    }
+
+    const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line
+
+    return userWithoutPassword;
   }
 }

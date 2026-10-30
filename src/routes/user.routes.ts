@@ -3,7 +3,7 @@ import UserController from '#controllers/user.controller.js';
 import { authenticateJWT, loginLimit, registerLimit } from '#middlewares/auth.middleware.js';
 import { authorizeRoles } from '#middlewares/role.middleware.js';
 import { validate } from '#middlewares/validate.middleware.js';
-import { createUserSchema, findByIdUserSchema, loginUserSchema } from '#schemas/user.schema.js';
+import { createUserSchema, deleteUserSchema, findByIdUserSchema, loginUserSchema, updateUserSchema } from '#schemas/user.schema.js';
 
 const router = Router();
 const userController = new UserController();
@@ -12,5 +12,7 @@ router.get('/', authenticateJWT, authorizeRoles('ADMIN', 'VENDEDOR'), userContro
 router.get('/:id', validate(findByIdUserSchema), authenticateJWT, authorizeRoles('ADMIN', 'VENDEDOR'), userController.findById);
 router.post('/register', registerLimit, validate(createUserSchema), userController.register);
 router.post('/login', loginLimit, validate(loginUserSchema), userController.login);
+router.put('/:id', validate(updateUserSchema), authenticateJWT, authorizeRoles('ADMIN'), userController.update);
+router.delete('/:id', validate(deleteUserSchema), authenticateJWT, authorizeRoles('ADMIN'), userController.delete);
 
 export default router;
