@@ -7,7 +7,7 @@
 
 O **SiteGaragem** é uma solução completa para lojas e concessionárias de compra e venda de veículos seminovos e novos, atendendo operações de estoque próprio e consignação. A plataforma integra dois ambientes sincronizados em tempo real:
 
-1. **Backoffice Administrativo e Operacional (Lado Empresa)**: Gestão de pátio (próprio e consignado), ciclo de vida dos anúncios, esteira guiada de fotos com drag-and-drop, gestão de bancos e matriz de taxas por faixas de parcelamento, agenda de visitas físicas/test-drives, apuração de margens e comissões, emissão de cartazes de showroom em PDF e relatórios analíticos de conversão.
+1. **Backoffice Administrativo e Operacional (Lado Empresa)**: Gestão de pátio (próprio e consignado), ciclo de vida dos anúncios, esteira guiada de fotos com drag-and-drop, gestão de bancos e matriz de taxas por faixas de parcelamento, gestão de leads e propostas, apuração de margens e comissões, emissão de cartazes de showroom em PDF e relatórios analíticos de conversão.
 2. **Vitrine Digital Pública e Responsiva (Lado Cliente)**: Catálogo dinâmico de alta performance com busca multicritério, visualizador de fotos em alta definição com vídeo demonstrativo, simulador multi-bancos por faixas de prazo com aviso legal de CPF, comparador de modelos lado a lado, módulo de avaliação de veículos na troca e triagem de contato multicanal (WhatsApp, Ligação, E-mail).
 
 ---
@@ -17,9 +17,9 @@ O **SiteGaragem** é uma solução completa para lojas e concessionárias de com
 | Perfil | Identificador | Responsabilidades e Permissões |
 | :--- | :--- | :--- |
 | **Administrador** | `ADMIN` | Gestão de colaboradores, cadastro de bancos parceiros e faixas de juros (`bank_rates`), parametrização da loja, relatórios contábeis de lucratividade/comissões, expurgo físico de mídias e auditoria global. |
-| **Vendedor** | `SELLER` | Cadastro guiado de veículos (próprios/consignados), ordenação da galeria de fotos, gestão da agenda de visitas/test-drives, negociações com reserva, fechamento de vendas e atendimento de propostas de troca e leads multicanal. |
-| **Espectador** | `VIEWER` | Consulta interna somente leitura ao catálogo de estoque, status de visitas agendadas e relatórios consolidados de métricas. |
-| **Cliente / Visitante** | `PUBLIC` | Consulta ao estoque ativo, aplicação de filtros, comparação de veículos, simulação de parcelamento por faixa e banco, envio de proposta de troca, agendamento de visita e seleção de canal preferencial de contato. |
+| **Vendedor** | `SELLER` | Cadastro guiado de veículos (próprios/consignados), ordenação da galeria de fotos, negociações com reserva, fechamento de vendas e atendimento de propostas de troca e leads multicanal. |
+| **Espectador** | `VIEWER` | Consulta interna somente leitura ao catálogo de estoque e relatórios consolidados de métricas. |
+| **Cliente / Visitante** | `PUBLIC` | Consulta ao estoque ativo, aplicação de filtros, comparação de veículos, simulação de parcelamento por faixa e banco, envio de proposta de troca e solicitação de contato com seleção de canal e turno preferencial. |
 
 ---
 
@@ -32,23 +32,22 @@ flowchart TD
         UC02["UC02: Comparar Veículos"]
         UC03["UC03: Simulação de Financiamento por Faixas e Bancos"]
         UC04["UC04: Enviar Proposta de Troca"]
-        UC05["UC05: Solicitar Agendamento de Visita"]
-        UC06["UC06: Contato com Preferência de Canal"]
+        UC05["UC05: Contato e Interesse com Preferência de Canal"]
     end
 
     subgraph Operacional["Painel Operacional (Vendedor)"]
-        UC07["UC07: Cadastro Guiado (Próprio ou Consignado)"]
-        UC08["UC08: Ordenação de Galeria Drag & Drop"]
-        UC09["UC09: Gestão e Cancelamento de Agenda de Visitas"]
-        UC10["UC10: Reserva, Venda e Comissões"]
-        UC11["UC11: Emissão de Cartaz de Showroom"]
+        UC06["UC06: Cadastro Guiado (Próprio ou Consignado)"]
+        UC07["UC07: Ordenação de Galeria Drag & Drop"]
+        UC08["UC08: Atendimento de Leads e Propostas"]
+        UC09["UC09: Reserva, Venda e Comissões"]
+        UC10["UC10: Emissão de Cartaz de Showroom"]
     end
 
     subgraph Gestao["Administração (Admin)"]
-        UC12["UC12: Parametrização de Bancos e Faixas de Taxas"]
-        UC13["UC13: Gestão de Usuários e Permissões"]
-        UC14["UC14: Campanhas Promocionais e Banners Hero"]
-        UC15["UC15: Auditoria e Relatórios Analíticos"]
+        UC11["UC11: Parametrização de Bancos e Faixas de Taxas"]
+        UC12["UC12: Gestão de Usuários e Permissões"]
+        UC13["UC13: Campanhas Promocionais e Banners Hero"]
+        UC14["UC14: Auditoria e Relatórios Analíticos"]
     end
 ```
 
@@ -72,22 +71,14 @@ flowchart TD
   5. O valor da parcela é calculado e apresentado com destaque para o **Aviso Legal Obrigatório**: *"Simulação com base na taxa média referencial da instituição para esta faixa de prazo. A aprovação, taxa real e valor final da parcela dependem de consulta ao CPF e score de crédito do cliente junto ao banco"*.
   6. Ao clicar em "Simular pelo WhatsApp", a mensagem é montada com o banco selecionado, entrada, parcelas calculadas e identificador do anúncio.
 
-#### UC05: Solicitação e Gestão de Agendamento de Visitas / Test-Drive
+#### UC05: Captação de Lead e Interesse com Canal e Turno Preferencial
 - **Atores**: Cliente (`PUBLIC`) e Vendedor (`SELLER`).
 - **Fluxo Principal**:
-  1. O cliente clica em "Agendar Visita / Test-Drive" no anúncio e informa nome, contato e horário pretendido.
-  2. O registro é salvo na entidade `visit_appointments` com status `AGENDADO`.
-  3. No painel operacional do vendedor, o veículo exibe o marcador visual indicando "Visita Agendada" com data e hora.
-  4. Caso o cliente desista ou ocorra imprevisto, o vendedor realiza o cancelamento da visita diretamente pelo sistema com 1 clique, liberando o pátio e disparando aviso.
+  1. Ao demonstrar interesse em um veículo do anúncio, preencher alerta de procura ou enviar avaliação de troca, o cliente seleciona o meio de contato de sua preferência (`WHATSAPP`, `LIGACAO_TELEFONICA`, `EMAIL`) e o turno (`MANHA`, `TARDE`, `NOITE`).
+  2. O lead é catalogado no CRM interno (`lead_interests` ou `trade_in_proposals`) com os atributos selecionados e vínculo opcional ao veículo de interesse.
+  3. No painel operacional (`UC08`), o vendedor visualiza a fila de leads e aciona o cliente pelo canal e turno escolhidos, conduzindo a negociação ou combinando o atendimento presencial diretamente.
 
-#### UC06: Captação de Lead com Canal e Turno Preferencial
-- **Atores**: Cliente (`PUBLIC`) e Vendedor (`SELLER`).
-- **Fluxo Principal**:
-  1. Ao preencher qualquer formulário de interesse ou avaliação de troca, o cliente seleciona o meio de contato de sua preferência (`WHATSAPP`, `LIGACAO_TELEFONICA`, `EMAIL`) e o turno (`MANHA`, `TARDE`, `NOITE`).
-  2. O lead é catalogado no CRM interno com os atributos selecionados.
-  3. O vendedor aciona o cliente exatamente pelo canal escolhido, reduzindo atritos de comunicação.
-
-#### UC07: Cadastro Guiado de Veículo (Estoque Próprio vs. Consignado)
+#### UC06: Cadastro Guiado de Veículo (Estoque Próprio vs. Consignado)
 - **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. O operador escolhe o tipo de anúncio: `PROPRIO` ou `CONSIGNADO`.
@@ -96,14 +87,14 @@ flowchart TD
   4. Preenche características técnicas e descrição detalhada (incluindo eventuais manutenções e revisões realizadas no texto descritivo). Inserção inline imediata de novas marcas, modelos ou opcionais caso não existam.
   5. Realiza o upload das imagens e laudo cautelar em PDF.
 
-#### UC08: Ordenação Manual da Galeria via Drag & Drop
+#### UC07: Ordenação Manual da Galeria via Drag & Drop
 - **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. Na tela de fotos do anúncio, o operador reordena as miniaturas arrastando e soltando (*drag-and-drop*).
   2. O primeiro item da lista ordenada (índice 0) é automaticamente assumido como foto de capa principal (`principal = true`).
   3. O painel despacha requisição `PATCH /anuncios/:id/fotos/reordenar` com o array de UUIDs ordenados, atualizando a ordem de exibição pública instantaneamente.
 
-#### UC10: Fechamento de Venda, Lucratividade e Comissões
+#### UC09: Fechamento de Venda, Lucratividade e Comissões
 - **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. O vendedor confirma a venda e altera o status para `VENDIDO`.
@@ -112,14 +103,14 @@ flowchart TD
   4. Para veículo `CONSIGNADO`: calcula margem da loja = `sale_price - owner_price` e apura a comissão do vendedor sobre a taxa retida.
   5. Dispara rotina de retenção histórica e agenda expurgo dos arquivos físicos em 7 dias.
 
-#### UC11: Emissão de Cartaz de Showroom para Pátio Físico
+#### UC10: Emissão de Cartaz de Showroom para Pátio Físico
 - **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. No painel de estoque, o operador aciona "Imprimir Cartaz de Showroom".
   2. A API gera PDF em folha A4 com logo, especificações técnicas, preço de vitrine e QR Code dinâmico para a página do anúncio.
   3. O documento é impresso e afixado no para-brisa do veículo na loja física.
 
-#### UC12: Parametrização de Bancos e Matriz de Taxas por Faixas
+#### UC11: Parametrização de Bancos e Matriz de Taxas por Faixas
 - **Ator**: Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. O administrador cadastra as instituições parceiras (`financing_banks`).
@@ -135,8 +126,7 @@ flowchart TD
 - **Estoque Híbrido**: Gestão unificada de veículos próprios e consignados com cálculo automático de margens de intermediação.
 - **Galeria Interativa (Drag & Drop)**: Reordenação manual de fotos com definição automática de foto de capa no índice 0.
 - **Matriz de Financiamento por Faixas**: Cadastro de bancos e tabela auxiliar de taxas conforme prazo de financiamento.
-- **Agenda de Pátio**: Visualização de veículos com visita agendada e botão de cancelamento direto em 1 clique.
-- **CRM e Leads Multicanal**: Atendimento a propostas de troca e contatos com indicação do meio (WhatsApp/Ligação/E-mail) e turno escolhido.
+- **CRM e Leads Multicanal**: Gestão centralizada de propostas de troca e demonstrações de interesse com indicação do canal (WhatsApp/Ligação/E-mail), turno escolhido e status de atendimento.
 - **Cartaz de Showroom**: Emissão de PDF em folha A4 com QR Code dinâmico.
 - **Auditoria e Métricas**: Trilha de alterações em anúncios e contagem com rate limiting anti-fraude.
 
@@ -145,7 +135,7 @@ flowchart TD
 - **Catálogo Geral**: Menu lateral de filtros acumulativos (combustível com regra flex, marcas, modelos vinculados, opcionais via tabela associativa, final de placa).
 - **Detalhes do Veículo**: Galeria com zoom, vídeo do YouTube integrado, selo e visualizador de Laudo Cautelar em PDF e comparativo FIPE.
 - **Simulador por Faixas de Bancos**: Seleção da instituição, busca automática da taxa pela faixa de parcelas e aviso legal obrigatório sobre CPF/score.
-- **Formulário de Troca e Agendamento**: Envio de dados do veículo usado e solicitação de visita no pátio físico.
+- **Formulário de Troca e Contato**: Envio de dados do veículo usado na troca e solicitação de atendimento direto para negociação.
 - **Comparador Flutuante**: Comparação lado a lado de até 3 carros selecionados persistidos no `localStorage`.
 
 ---
@@ -175,8 +165,6 @@ flowchart TD
     Inserção imediata de Marca, Modelo ou Opcional sem sair da tela de cadastro de anúncio.
 11. **[RN011] Transparência e Disclaimer Legal de Financiamento**:
     Toda simulação consulta a taxa da faixa correspondente em `bank_rates` e exibe aviso legal obrigatório informando que o resultado é uma estimativa referencial sujeita a consulta de CPF/score de crédito.
-12. **[RN012] Descentralização de Visitas de Pátio**:
-    O veículo com agendamento ativo impede marcação concorrente no mesmo horário, e o cancelamento pode ser executado diretamente pelo vendedor no painel.
 
 ---
 
@@ -190,7 +178,6 @@ erDiagram
     USERS ||--o{ VEHICLES : "registers"
     USERS ||--o{ VEHICLES : "sells"
     USERS ||--o{ VEHICLE_AUDITS : "audits"
-    USERS ||--o{ VISIT_APPOINTMENTS : "attends"
     BRANDS ||--|{ MODELS : "has"
     MODELS ||--o{ VEHICLES : "specifies"
     PROMOTIONS ||--o{ VEHICLES : "applies_to"
@@ -198,7 +185,7 @@ erDiagram
     VEHICLES ||--o{ VEHICLE_FEATURES : "has"
     FEATURES ||--o{ VEHICLE_FEATURES : "composes"
     VEHICLES ||--o{ TRADE_IN_PROPOSALS : "receives"
-    VEHICLES ||--o{ VISIT_APPOINTMENTS : "receives"
+    VEHICLES ||--o{ LEAD_INTERESTS : "generates"
     VEHICLES ||--o{ VEHICLE_METRICS : "accumulates"
     HERO_BANNERS }o--o| PROMOTIONS : "targets"
     LEAD_INTERESTS }o--o| MODELS : "wants"
@@ -305,7 +292,6 @@ erDiagram
         string full_license_plate
         int plate_last_digit
         string status
-        boolean has_scheduled_visit
         timestamp reservation_expires_at
         string video_url
         string inspection_report_url
@@ -328,19 +314,6 @@ erDiagram
         timestamp created_at
     }
 
-    VISIT_APPOINTMENTS {
-        uuid id PK
-        uuid vehicle_id FK
-        uuid user_id FK
-        string customer_name
-        string customer_contact
-        string preferred_channel
-        timestamp scheduled_at
-        string status
-        text notes
-        timestamp created_at
-    }
-
     TRADE_IN_PROPOSALS {
         uuid id PK
         uuid vehicle_id FK
@@ -360,6 +333,7 @@ erDiagram
 
     LEAD_INTERESTS {
         uuid id PK
+        uuid vehicle_id FK
         string customer_name
         string customer_phone
         string preferred_channel
@@ -369,6 +343,8 @@ erDiagram
         int min_year
         int max_year
         decimal max_price
+        string status
+        text notes
         timestamp created_at
     }
 
