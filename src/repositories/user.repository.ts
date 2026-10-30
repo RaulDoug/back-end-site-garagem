@@ -36,6 +36,13 @@ export class UserRepository {
     return result.rows[0] || null;
   }
 
+  async findAll(): Promise<User[]> {
+    const query = 'SELECT * FROM users;';
+    const result = await pool.query<User>(query);
+
+    return result.rows;
+  };
+
   async create(data: CreateUserData): Promise<User> {
     const query = `
       INSERT INTO users (name, email, password_hash, phone, role, commission_rates)

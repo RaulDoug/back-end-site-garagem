@@ -77,4 +77,16 @@ export default class UserController {
       return res.status(500).json({ message: 'Erro interno do servidor' });
     }
   };
+
+  findAll = async (req: Request, res: Response) => {
+    try {
+      const users = await this.userService.findAll();
+
+      return res.status(200).json({ users });
+    } catch (error) {
+      console.log(error);
+
+      return res.status(500).json({ message: 'Erro interno do servidor' });
+    }
+  };
 }

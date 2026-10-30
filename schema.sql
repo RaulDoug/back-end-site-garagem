@@ -12,8 +12,11 @@ CREATE TABLE stores (
   address VARCHAR(255) NOT NULL,
   cnpj VARCHAR(18) NOT NULL,
   is_active BOOLEAN DEFAULT true,
+  deleted_at TIMESTAMP DEFAULT NULL,
   created_at TIMESTAMP DEFAULT now()
 );
+
+CREATE UNIQUE INDEX idx_stores_cnpj ON stores(cnpj) WHERE deleted_at IS NULL;
 
 -------------------------------------------------
 -- Enum de roles para tabela usuário 
@@ -33,8 +36,11 @@ CREATE TABLE users (
   role users_roles_types DEFAULT 'VENDEDOR',
   commission_rates DECIMAL(5, 2),
   is_active BOOLEAN DEFAULT true,
+  deleted_at TIMESTAMP DEFAULT NULL,
   created_at TIMESTAMP DEFAULT now()
 );
+
+CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
 
 -------------------------------------------------
 -- Tabela de marca (brands)
@@ -42,7 +48,10 @@ CREATE TABLE users (
 
 CREATE TABLE brands (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name VARCHAR(255) NOT NULL
+  name VARCHAR(255) NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  deleted_at TIMESTAMP DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT now()
 );
 
 -------------------------------------------------
@@ -75,7 +84,10 @@ CREATE TABLE models (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   brand_id UUID NOT NULL,
   name VARCHAR(255) NOT NULL,
-  CONSTRAINT fk_models_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE
+  is_active BOOLEAN DEFAULT true,
+  deleted_at TIMESTAMP DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT now(),
+  CONSTRAINT fk_models_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE RESTRICT
 );
 
 -------------------------------------------------
@@ -232,12 +244,15 @@ CREATE TABLE vehicles (
   website_lead_origin BOOLEAN,
   created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP,
+  deleted_at TIMESTAMP DEFAULT NULL,
   CONSTRAINT fk_store_vehicle FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE,
   CONSTRAINT fk_register_user_vehicle FOREIGN KEY (registered_by_user_id) REFERENCES users(id),
   CONSTRAINT fk_sold_user_vehicle FOREIGN KEY (sold_by_user_id) REFERENCES users(id),
-  CONSTRAINT fk_model_vehicle FOREIGN KEY (model_id) REFERENCES models(id),
+  CONSTRAINT fk_model_vehicle FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE RESTRICT,
   CONSTRAINT fk_promotion_vehicle FOREIGN KEY (promotion_id) REFERENCES promotions(id) ON DELETE SET NULL
 );
+
+CREATE UNIQUE INDEX idx_vehicles_full_license_plate ON vehicles(full_license_plate) WHERE deleted_at IS NULL;
 
 -------------------------------------------------
 -- Tabela de foto do veículo (vehicle_photos)
@@ -322,8 +337,8 @@ CREATE TABLE vehicle_features (
   PRIMARY KEY (vehicle_id, feature_id)
 );
 
-CREATE INDEX idx_vehicles_status ON vehicles(status);
-CREATE INDEX idx_vehicles_model_id ON vehicles(model_id);
-CREATE INDEX idx_vehicles_category ON vehicles(category);
-CREATE INDEX idx_vehicles_sale_price ON vehicles(sale_price);
-CREATE INDEX idx_vehicles_created_at ON vehicles(created_at);
+CREATE INDEX idx_vehicles_status ON vehicles(status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_vehicles_model_id ON vehicles(model_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_vehicles_category ON vehicles(category) WHERE deleted_at IS NULL;
+CREATE INDEX idx_vehicles_sale_price ON vehicles(sale_price) WHERE deleted_at IS NULL;
+CREATE INDEX idx_vehicles_created_at ON vehicles(created_at) WHERE deleted_at IS NULL;

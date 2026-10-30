@@ -57,9 +57,9 @@ export const updateUserSchema = z.object({
 });
 
 export const deleteUserSchema = z.object({
-  query: {
+  params: z.object({
     id: idValidation,
-  }
+  })
 });
 
 export const findByIdUserSchema = z.object({
@@ -76,3 +76,4 @@ export type CreateUserInput = z.infer<typeof createUserSchema>['body'];
 export type LoginUserInput = z.infer<typeof loginUserSchema>['body'];
 export type UpdateUserParams = z.infer<typeof updateUserSchema>['params'];
 export type UpdateUserBody = z.infer<typeof updateUserSchema>['body'];
+export type DeleteUserParams = z.infer<typeof deleteUserSchema>['params'];

@@ -69,4 +69,13 @@ export default class UserService {
 
     return userWithoutPassword;
   }
-};
+
+  async findAll(): Promise<Omit<User, 'password_hash'>[]> {
+    const users = await this.userRepository.findAll();
+
+    return users.map((user) => {
+      const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line
+      return userWithoutPassword;
+    });
+  }
+}
