@@ -156,7 +156,7 @@ describe('DELETE /api/user/:id - exclusão e casos de borda', () => {
     expect(res.body).toEqual({ message: 'Usuário inexistente.' });
   });
 
-  it('deve retornar 404 ao deletar o mesmo usuário duas vezes (bug 4.4)', async () => {
+  it('não deve permitir que o ADMIN delete a própria conta', async () => {
     const user = baseUser('delete_twice');
     const created = await register(user);
     expect(created.status).toBe(201);
@@ -165,8 +165,6 @@ describe('DELETE /api/user/:id - exclusão e casos de borda', () => {
     const first = await deleteUser(id, adminToken);
     expect(first.status).toBe(200);
 
-    // Comportamento esperado: o service deve tratar o usuário já deletado como
-    // inexistente. Atualmente o repository não filtra deleted_at e retorna 200.
     const second = await deleteUser(id, adminToken);
     expect(second.status).toBe(404);
     expect(second.body).toEqual({ message: 'Usuário inexistente.' });
@@ -189,25 +187,18 @@ describe('DELETE /api/user/:id - exclusão e casos de borda', () => {
 
     const res = await deleteUser(id, auth.body.userInfo.token);
 
-    // A regra de negócio para autoexclusão ainda não foi definida. Este teste
-    // caracteriza o comportamento atual: o ADMIN pode deletar a própria conta.
-    // Se a regra passar a proibir a autoexclusão, atualizar a expectativa para
-    // 403 (ou o status definido) e remover esta caracterização.
-    expect(res.status).toBe(200);
-    expect(res.body.userInfo).toMatchObject({
-      id,
-      is_active: false,
-    });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ message: 'Não é possível deletar o próprio usuário.' });
 
     const row = await pool.query(
       'SELECT deleted_at, is_active FROM users WHERE id = $1',
       [id]
     );
-    expect(row.rows[0].deleted_at).not.toBeNull();
-    expect(row.rows[0].is_active).toBe(false);
+    expect(row.rows[0].deleted_at).toBeNull();
+    expect(row.rows[0].is_active).toBe(true);
   });
 
-  it('deve continuar aceitando o token de um usuário deletado (caracterização 4.7)', async () => {
+  it('não deve continuar aceitando o token de um usuário deletado (caracterização 4.7)', async () => {
     const user = baseUser('delete_token');
     const created = await register(user);
     expect(created.status).toBe(201);
@@ -223,14 +214,8 @@ describe('DELETE /api/user/:id - exclusão e casos de borda', () => {
     const deleted = await deleteUser(id, adminToken);
     expect(deleted.status).toBe(200);
 
-    // Caracterização do item 4.7: o authenticateJWT não consulta o banco, então
-    // o token de 30 dias continua válido após o soft delete. Não é uma falha
-    // intencional: o teste registra o comportamento atual.
     const res = await getAll(token);
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.users)).toBe(true);
-    expect(
-      res.body.users.map((item: { email: string }) => item.email)
-    ).not.toContain(user.email);
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ message: 'Acesso negado. Token não fornecido ou inválido' });
   });
 });

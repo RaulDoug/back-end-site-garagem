@@ -179,6 +179,16 @@ describe('UserRepository - integração com PostgreSQL', () => {
     expect(row.rows[0].is_active).toBe(false);
   });
 
+  it('deve retornar null ao tentar deletar um usuário já deletado (idempotência)', async () => {
+    const user = await createRepositoryUser('delete_already_deleted');
+
+    const firstDelete = await repository.delete(user.id);
+    expect(firstDelete).not.toBeNull();
+
+    const secondDelete = await repository.delete(user.id);
+    expect(secondDelete).toBeNull();
+  });
+
   it('deve rejeitar criação com e-mail duplicado ativo (violação UNIQUE)', async () => {
     const user = await createRepositoryUser('unique_email');
 

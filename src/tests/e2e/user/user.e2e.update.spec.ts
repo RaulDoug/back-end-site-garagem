@@ -324,7 +324,7 @@ describe('PUT /api/user/:id - atualização e casos de borda', () => {
     });
   });
 
-  it('não deve alterar password_hash quando enviado no body (bug 4.2)', async () => {
+  it('não deve alterar password_hash quando enviado no body', async () => {
     const created = await register(baseUser('put_mass_password_hash'));
     expect(created.status).toBe(201);
     const id = created.body.user.id;
@@ -344,8 +344,6 @@ describe('PUT /api/user/:id - atualização e casos de borda', () => {
       adminToken
     );
 
-    // Comportamento esperado: campos não previstos no updateUserSchema devem
-    // ser descartados antes de chegar ao repositório.
     expect(res.status).toBe(200);
     expect(res.body.userInfo.name).toBe('Nome Seguro');
     expect(res.body.userInfo).not.toHaveProperty('password_hash');
@@ -354,11 +352,14 @@ describe('PUT /api/user/:id - atualização e casos de borda', () => {
       'SELECT password_hash FROM users WHERE id = $1',
       [id]
     );
+
+    console.log('ANTES:', hashOriginal);
+    console.log('DEPOIS:', depois.rows[0].password_hash);
     expect(depois.rows).toHaveLength(1);
     expect(depois.rows[0].password_hash).toBe(hashOriginal);
   });
 
-  it('não deve alterar email quando enviado no body (bug 4.2)', async () => {
+  it('não deve alterar email quando enviado no body', async () => {
     const created = await register(baseUser('put_mass_email'));
     expect(created.status).toBe(201);
     const id = created.body.user.id;
@@ -393,7 +394,7 @@ describe('PUT /api/user/:id - atualização e casos de borda', () => {
     expect(injetado.rows).toHaveLength(0);
   });
 
-  it('não deve alterar is_active quando enviado no body (bug 4.2)', async () => {
+  it('não deve alterar is_active quando enviado no body', async () => {
     const created = await register(baseUser('put_mass_is_active'));
     expect(created.status).toBe(201);
     const id = created.body.user.id;
@@ -419,7 +420,7 @@ describe('PUT /api/user/:id - atualização e casos de borda', () => {
     expect(resultado.rows[0].is_active).toBe(true);
   });
 
-  it('não deve alterar o id quando enviado no body (bug 4.2)', async () => {
+  it('não deve alterar o id quando enviado no body', async () => {
     const created = await register(baseUser('put_mass_id'));
     expect(created.status).toBe(201);
     const idOriginal = created.body.user.id;
@@ -452,7 +453,7 @@ describe('PUT /api/user/:id - atualização e casos de borda', () => {
     expect(injetado.rows).toHaveLength(0);
   });
 
-  it('não deve interpolar chaves maliciosas no SQL (bug 4.2)', async () => {
+  it('não deve interpolar chaves maliciosas no SQL', async () => {
     const created = await register(baseUser('put_sql_injection'));
     expect(created.status).toBe(201);
     const id = created.body.user.id;
@@ -466,8 +467,6 @@ describe('PUT /api/user/:id - atualização e casos de borda', () => {
       adminToken
     );
 
-    // Comportamento esperado: chaves desconhecidas devem ser descartadas e
-    // nunca interpoladas diretamente na cláusula SET.
     expect(res.status).toBe(200);
     expect(res.body.userInfo.name).toBe('Atualização Segura');
 

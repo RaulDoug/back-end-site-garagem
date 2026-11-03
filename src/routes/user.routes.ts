@@ -10,7 +10,7 @@ const userController = new UserController();
 
 router.get('/', authenticateJWT, authorizeRoles('ADMIN', 'VENDEDOR'), userController.findAll);
 router.get('/:id', validate(findByIdUserSchema), authenticateJWT, authorizeRoles('ADMIN', 'VENDEDOR'), userController.findById);
-router.post('/register', registerLimit, validate(createUserSchema), userController.register);
+router.post('/register', registerLimit, authenticateJWT, authorizeRoles('ADMIN'), validate(createUserSchema), userController.register);
 router.post('/login', loginLimit, validate(loginUserSchema), userController.login);
 router.put('/:id', validate(updateUserSchema), authenticateJWT, authorizeRoles('ADMIN'), userController.update);
 router.delete('/:id', validate(deleteUserSchema), authenticateJWT, authorizeRoles('ADMIN'), userController.delete);

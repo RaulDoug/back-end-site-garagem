@@ -13,12 +13,20 @@ import { authenticateJWT } from '#middlewares/auth.middleware.js';
 import { authorizeRoles } from '#middlewares/role.middleware.js';
 import { validate } from '#middlewares/validate.middleware.js';
 import { validateToken } from '#utils/jwt.util.js';
+import { userRepository } from '#repositories/user.repository.js';
 
 vi.mock('#utils/jwt.util.js', () => ({
   validateToken: vi.fn(),
 }));
 
+vi.mock('#repositories/user.repository.js', () => ({
+  userRepository: {
+    findById: vi.fn(),
+  },
+}));
+
 const mockedValidateToken = vi.mocked(validateToken);
+const mockedFindById = vi.mocked(userRepository.findById);
 
 const createRequest = (overrides: Partial<Request> = {}) =>
   ({
@@ -84,7 +92,7 @@ describe('authenticateJWT', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('deve preencher req.user e chamar next com um token válido', () => {
+  it('deve preencher req.user e chamar next com um token válido', async () => {
     const payload = {
       id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
       email: 'raul.ferreira@garagem.com',
@@ -94,8 +102,9 @@ describe('authenticateJWT', () => {
       headers: { authorization: 'Bearer token-valido' },
     });
     mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindById.mockResolvedValue({ id: payload.id, deleted_at: null, is_active: true } as never);
 
-    authenticateJWT(req, res, next);
+    await authenticateJWT(req, res, next);
 
     expect(mockedValidateToken).toHaveBeenCalledWith('token-valido');
     expect(req.user).toEqual(payload);
@@ -117,6 +126,27 @@ describe('authenticateJWT', () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
       message: 'Token inválido ou expirado.',
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('deve retornar 401 quando o usuário não existir no banco ou estiver deletado', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'raul.ferreira@garagem.com',
+      role: 'ADMIN',
+    };
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindById.mockResolvedValue(null);
+
+    await authenticateJWT(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Acesso negado. Token não fornecido ou inválido',
     });
     expect(next).not.toHaveBeenCalled();
   });
@@ -192,7 +222,7 @@ describe('validate', () => {
     next = vi.fn() as unknown as NextFunction;
   });
 
-  it('deve aplicar apenas o query parseado, mantendo body e params originais', () => {
+  it('deve aplicar body e query parseados e sanitizados, mantendo params não declarados no schema', () => {
     const schema = z.object({
       body: z.object({
         email: z.string().trim().toLowerCase(),
@@ -214,8 +244,8 @@ describe('validate', () => {
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(req.query).toEqual({ page: 2 });
-    expect(req.body).toEqual(rawBody);
-    expect(req.body.email).toBe('  USUARIO@GARAGEM.COM  ');
+    expect(req.body).toEqual({ email: 'usuario@garagem.com' });
+    expect(req.body.email).toBe('usuario@garagem.com');
     expect(req.params).toEqual(rawParams);
     expect(res.status).not.toHaveBeenCalled();
     expect(res.json).not.toHaveBeenCalled();

@@ -9,7 +9,9 @@ export default class UserService {
   async create(data: CreateUserInput): Promise<Omit<User, 'password_hash'>> {
     const { password, ...dataWithoutPass } = data;
 
-    const existingUser = await this.userRepository.findByEmail(dataWithoutPass.email);
+    const normalizedEmail = dataWithoutPass.email.toLowerCase();
+
+    const existingUser = await this.userRepository.findByEmail(normalizedEmail);
 
     if (existingUser !== null) {
       throw new Error('E-mail já cadastrado');
@@ -19,6 +21,7 @@ export default class UserService {
 
     const payload = {
       ...dataWithoutPass,
+      email: normalizedEmail,
       password_hash: hashedPassword,
     };
 

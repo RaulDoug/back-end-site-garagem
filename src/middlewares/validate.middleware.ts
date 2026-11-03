@@ -7,11 +7,29 @@ export const validate = (schema: ZodType) => (req: Request, res: Response, next:
       body: req.body,
       query: req.query,
       params: req.params,
-    }) as { query?: unknown };
+    }) as { body?: unknown; query?: unknown; params?: unknown };
+
+    if (parsed.body) {
+      Object.defineProperty(req, 'body', {
+        value: parsed.body,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    }
 
     if (parsed.query) {
       Object.defineProperty(req, 'query', {
         value: parsed.query,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    }
+
+    if (parsed.params) {
+      Object.defineProperty(req, 'params', {
+        value: parsed.params,
         writable: true,
         configurable: true,
         enumerable: true,

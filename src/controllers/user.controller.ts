@@ -126,6 +126,11 @@ export default class UserController {
   delete = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
+      const userId = req.user?.id;
+
+      if (userId === id) {
+        return res.status(400).json({ message: 'Não é possível deletar o próprio usuário.' });
+      }
 
       const deletedUser = await this.userService.delete(id as string);
 

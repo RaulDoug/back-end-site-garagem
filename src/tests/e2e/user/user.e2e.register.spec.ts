@@ -7,6 +7,7 @@ const {
   uniqueEmail,
   register,
   validRegisterPayload,
+  signToken,
   cleanup,
 } = createUserE2EContext();
 
@@ -299,7 +300,7 @@ describe('POST /api/user/register - validações e casos de borda', () => {
       }
     );
 
-    it('deve persistir commission_rates=0 (bug 4.5)', async () => {
+    it('deve persistir commission_rates = 0', async () => {
       const res = await register(
         validRegisterPayload({
           email: uniqueEmail('comissao_zero'),
@@ -308,6 +309,8 @@ describe('POST /api/user/register - validações e casos de borda', () => {
       );
 
       expect(res.status).toBe(201);
+
+      console.log('res.body.user.commission_rates:', res.body.user.commission_rates);
 
       // Comportamento esperado: 0 é um valor válido e deve ser persistido
       // como 0, não convertido para null.
@@ -342,25 +345,47 @@ describe('POST /api/user/register - validações e casos de borda', () => {
       expect(resultado.rows[0].role).toBe('VENDEDOR');
     });
 
-    it('não deve permitir criar ADMIN sem autenticação (bug 4.1)', async () => {
+    it('não deve permitir criar usuário sem autenticação', async () => {
       const res = await register(
         validRegisterPayload({
-          email: uniqueEmail('admin_publico'),
+          email: uniqueEmail('sem_token'),
+        }),
+        null
+      );
+
+      expect(res.status).toBe(401);
+      expect(res.body.message).toBe('Acesso negado. Token não fornecido ou inválido');
+    });
+
+    it('não deve permitir criar usuário com perfil não-ADMIN', async () => {
+      const res = await register(
+        validRegisterPayload({
+          email: uniqueEmail('sem_permissao'),
+        }),
+        signToken('VENDEDOR')
+      );
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toBe('Acesso proibido. Permissão insuficiente.');
+    });
+
+    it('deve permitir que ADMIN crie outro usuário ADMIN', async () => {
+      const emailAdmin = uniqueEmail('novo_admin');
+      const res = await register(
+        validRegisterPayload({
+          email: emailAdmin,
           role: 'ADMIN',
         })
       );
 
-      // Comportamento esperado: o register público não deve aceitar uma role
-      // privilegiada. A role enviada deve ser ignorada e o usuário criado
-      // como VENDEDOR.
       expect(res.status).toBe(201);
-      expect(res.body.user.role).toBe('VENDEDOR');
+      expect(res.body.user.role).toBe('ADMIN');
 
       const resultado = await pool.query(
         'SELECT role FROM users WHERE id = $1',
         [res.body.user.id]
       );
-      expect(resultado.rows[0].role).toBe('VENDEDOR');
+      expect(resultado.rows[0].role).toBe('ADMIN');
     });
   });
 

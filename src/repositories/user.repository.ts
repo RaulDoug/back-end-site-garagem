@@ -24,7 +24,7 @@ export interface CreateUserData {
 
 export class UserRepository {
   async findByEmail(email: string): Promise<User | null> {
-    const query = 'SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1;';
+    const query = 'SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL LIMIT 1;';
     const result = await pool.query<User>(query, [email]);
 
     return result.rows[0] || null;
@@ -62,7 +62,7 @@ export class UserRepository {
       data.password_hash,
       data.phone,
       data.role || null,
-      data.commission_rates || null,
+      data.commission_rates || 0,
     ];
 
     const result = await pool.query<User>(query, values);
@@ -100,6 +100,7 @@ export class UserRepository {
       UPDATE users
       SET deleted_at = NOW(), is_active = false
       WHERE id = $1
+      AND deleted_at IS NULL
       RETURNING *;
     `;
 
