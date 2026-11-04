@@ -1,32 +1,96 @@
+import { buildFindQuery, buildInsertQuery, buildUpdateQuery } from '#utils/query.util.js';
 import pool from '../config/database';
 import { QueryResultRow } from 'pg';
 
+interface RepositoryOptions {
+    softDelete?: boolean;
+    hasActiveStatus?: boolean;
+}
 
-export default class BaseRepository<T extends QueryResultRow> {
-    constructor(protected tableName: string) {}
+interface FindParams {
+    field: string;
+    value: unknown;
+    operator: '=' | '>=' | '<=' | 'ILIKE' | 'IN';
+}
 
-    async findById(id: string): Promise<T | null> {
-        const query = `
+export interface FindData {
+    filters: FindParams[];
+    includeDeleted?: boolean;
+}
+
+export default class BaseRepository<
+    T extends QueryResultRow,
+    C = Record<string, unknown>
+> {
+  constructor(
+        protected tableName: string,
+        protected options: RepositoryOptions = { softDelete: true, hasActiveStatus: true }
+  ) {
+    this.options = { softDelete: true, hasActiveStatus: true, ...options };
+  }
+
+  async findById(id: string): Promise<T | null> {
+    let query = `
             SELECT * FROM ${this.tableName} 
-            WHERE id = $1 
-            AND deleted_at IS NULL 
-            LIMIT 1;
+            WHERE id = $1
         `;
 
-        const result = await pool.query<T>(query, [id]);
-
-        return result.rows[0] || null;
+    if (this.options.softDelete) {
+      query += ' AND deleted_at IS NULL LIMIT 1;';
+    } else {
+      query += ' LIMIT 1;';
     }
 
-    async findAll(include_deleted: boolean): Promise<T[]> {
-        let query = `SELECT * FROM ${this.tableName}`;
+    const result = await pool.query<T>(query, [id]);
 
-        if (!include_deleted) {
-            query += ' WHERE deleted_at IS NULL';
-        }
+    return result.rows[0] || null;
+  }
 
-        const result = await pool.query<T>(query);
+  async find(filters: FindData): Promise<T[]> {
+    const { query, values } = buildFindQuery(this.tableName, filters);
 
-        return result.rows;
+    const result = await pool.query<T>(query, values);
+
+    return result.rows;
+  }
+
+  async create(data: C): Promise<T> {
+    const { query, values } = buildInsertQuery(this.tableName, data as Record<string, unknown>);
+
+    const result = await pool.query<T>(query, values);
+
+    return result.rows[0];
+  }
+
+  async update(id: string, data: Partial<C>): Promise<T | null> {
+    const keys = Object.keys(data);
+    if (keys.length === 0) return null;
+
+    const { query, values } = buildUpdateQuery(this.tableName, data as Record<string, unknown>, id);
+
+    const result = await pool.query<T>(query, values);
+
+    return result.rows[0] || null;
+  }
+
+  async delete(id: string): Promise<T | null> {
+    let query: string;
+
+    if (this.options.softDelete) {
+      const activeClause = this.options.hasActiveStatus ? ', is_active = false' : '';
+      query = `
+                UPDATE ${this.tableName}
+                SET deleted_at = NOW()${activeClause}
+                WHERE id = $1 
+                AND deleted_at IS NULL 
+                RETURNING *;
+            `;
+    } else {
+      query = `DELETE FROM ${this.tableName} WHERE id = $1 RETURNING *;`;
     }
+
+    const result = await pool.query<T>(query, [id]);
+
+    return result.rows[0] || null;
+  }
 }

@@ -10,6 +10,7 @@ export default defineConfig([
     rules: {
       'semi': ['error', 'always'],
       'quotes': ['error', 'single'],
+      'indent': ['error', 2],
       'prefer-const': 'error',
       '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn'

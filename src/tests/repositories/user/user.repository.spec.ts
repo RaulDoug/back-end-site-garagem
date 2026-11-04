@@ -88,14 +88,14 @@ describe('UserRepository - integração com PostgreSQL', () => {
     await expect(repository.findById(user.id)).resolves.toBeNull();
   });
 
-  it('deve filtrar deletados em findAll(false) e incluí-los em findAll(true)', async () => {
+  it('deve filtrar deletados em find(includeDeleted: false) e incluí-los em find(includeDeleted: true)', async () => {
     const activeUser = await createRepositoryUser('find_all_active');
     const deletedUser = await createRepositoryUser('find_all_deleted');
 
     await repository.delete(deletedUser.id);
 
-    const activeUsers = await repository.findAll(false);
-    const allUsers = await repository.findAll(true);
+    const activeUsers = await repository.find({ filters: [], includeDeleted: false });
+    const allUsers = await repository.find({ filters: [], includeDeleted: true });
 
     const activeIds = activeUsers.map((user) => user.id);
     const allIds = allUsers.map((user) => user.id);

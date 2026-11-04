@@ -4,7 +4,7 @@ import type { UserRepository } from '#repositories/user.repository.js';
 export const createMockUserRepository = () => ({
   findByEmail: vi.fn(),
   findById: vi.fn(),
-  findAll: vi.fn(),
+  find: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import UserService from '#services/user.service.js';
+import type { FindData } from '#repositories/base.repository.js';
 import {
   PASSWORD_HASH,
   buildUser,
@@ -14,7 +15,7 @@ import {
 vi.mock('bcrypt');
 vi.mock('jsonwebtoken');
 
-describe('UserService.findAll', () => {
+describe('UserService.find', () => {
   const mockUserRepository = createMockUserRepository();
   let userService: UserService;
 
@@ -23,58 +24,39 @@ describe('UserService.findAll', () => {
     userService = new UserService(asUserRepository(mockUserRepository));
   });
 
-  it('deve repassar include_deleted=true ao repositório quando o solicitante for ADMIN', async () => {
-    mockUserRepository.findAll.mockResolvedValue([
+  it('deve repassar filters ao repositório', async () => {
+    mockUserRepository.find.mockResolvedValue([
       buildUser(),
       buildUser({ ...otherSafeUser, password_hash: PASSWORD_HASH }),
     ]);
 
-    const resultado = await userService.findAll(true, 'ADMIN');
+    const filters: FindData = { filters: [], includeDeleted: true };
+    const resultado = await userService.find(filters);
 
-    expect(mockUserRepository.findAll).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.findAll).toHaveBeenCalledWith(true);
+    expect(mockUserRepository.find).toHaveBeenCalledTimes(1);
+    expect(mockUserRepository.find).toHaveBeenCalledWith(filters);
     expect(resultado).toEqual([safeUser, otherSafeUser]);
   });
 
-  it('deve repassar include_deleted=false ao repositório quando ADMIN não solicitar deletados', async () => {
-    mockUserRepository.findAll.mockResolvedValue([]);
+  it('deve retornar uma lista vazia quando o repositório não encontrar usuários', async () => {
+    mockUserRepository.find.mockResolvedValue([]);
 
-    const resultado = await userService.findAll(false, 'ADMIN');
-
-    expect(mockUserRepository.findAll).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.findAll).toHaveBeenCalledWith(false);
-    expect(resultado).toEqual([]);
-  });
-
-  it.each(['VENDEDOR', 'VISUALIZADOR', 'PUBLICO'] as const)(
-    'deve forçar include_deleted=false quando o solicitante for %s',
-    async (role) => {
-      mockUserRepository.findAll.mockResolvedValue([]);
-
-      await userService.findAll(true, role);
-
-      expect(mockUserRepository.findAll).toHaveBeenCalledTimes(1);
-      expect(mockUserRepository.findAll).toHaveBeenCalledWith(false);
-    }
-  );
-
-  it('deve retornar uma lista vazia quando não houver usuários', async () => {
-    mockUserRepository.findAll.mockResolvedValue([]);
-
-    const resultado = await userService.findAll(false, 'ADMIN');
+    const filters: FindData = { filters: [] };
+    const resultado = await userService.find(filters);
 
     expect(resultado).toEqual([]);
     expect(resultado).toHaveLength(0);
-    expect(mockUserRepository.findAll).toHaveBeenCalledWith(false);
+    expect(mockUserRepository.find).toHaveBeenCalledWith(filters);
   });
 
   it('deve remover password_hash de todos os usuários retornados', async () => {
-    mockUserRepository.findAll.mockResolvedValue([
+    mockUserRepository.find.mockResolvedValue([
       buildUser(),
       buildUser({ ...otherSafeUser, password_hash: PASSWORD_HASH }),
     ]);
 
-    const resultado = await userService.findAll(false, 'ADMIN');
+    const filters: FindData = { filters: [], includeDeleted: false };
+    const resultado = await userService.find(filters);
 
     expect(resultado).toHaveLength(2);
     resultado.forEach((user) => {

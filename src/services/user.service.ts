@@ -1,10 +1,12 @@
+import { FindData } from '#repositories/base.repository.js';
 import { User, UserRepository } from '#repositories/user.repository.js';
 import { CreateUserInput, LoginUserInput, UpdateUserBody } from '#schemas/user.schema.js';
+import { AppError, BadRequestError, NotFoundError } from '#src/errors/app.error.js';
 import { generateToken } from '#utils/jwt.util.js';
 import { comparePassword, hashPassword } from '../utils/hash.util';
 
 export default class UserService {
-  constructor(private userRepository = new UserRepository()) { };
+  constructor(private userRepository = new UserRepository()) {};
 
   async create(data: CreateUserInput): Promise<Omit<User, 'password_hash'>> {
     const { password, ...dataWithoutPass } = data;
@@ -14,7 +16,7 @@ export default class UserService {
     const existingUser = await this.userRepository.findByEmail(normalizedEmail);
 
     if (existingUser !== null) {
-      throw new Error('E-mail já cadastrado');
+      throw new AppError('E-mail já cadastrado', 409);
     }
 
     const hashedPassword = await hashPassword(password);
@@ -40,7 +42,7 @@ export default class UserService {
     const isMatch = user ? await comparePassword(password, user.password_hash) : false;
 
     if (user === null || isMatch === false) {
-      throw new Error('Credenciais inválidas');
+      throw new AppError('Credenciais inválidas', 401);
     };
 
     const payload = {
@@ -65,7 +67,7 @@ export default class UserService {
     const user = await this.userRepository.findById(id);
 
     if (user === null) {
-      throw new Error('Usuário inexistente.');
+      throw new NotFoundError('Usuário inexistente.');
     }
 
     const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line
@@ -73,11 +75,8 @@ export default class UserService {
     return userWithoutPassword;
   }
 
-  async findAll(include_deleted: boolean, role: string): Promise<Omit<User, 'password_hash'>[]> {
-
-    const includeDeleted = role === 'ADMIN' ? include_deleted : false;
-
-    const users = await this.userRepository.findAll(includeDeleted);
+  async find(filters: FindData): Promise<Omit<User, 'password_hash'>[]> {
+    const users = await this.userRepository.find(filters);
 
     return users.map((user) => {
       const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line
@@ -89,13 +88,13 @@ export default class UserService {
     const existingUser = await this.userRepository.findById(id);
 
     if (existingUser === null) {
-      throw new Error('Usuário inexistente.');
+      throw new NotFoundError('Usuário inexistente.');
     }
 
     const updatedUser = await this.userRepository.update(id, data);
 
     if (updatedUser === null) {
-      throw new Error('Nenhum campo informado para atualização.');
+      throw new BadRequestError('Nenhum campo informado para atualização.');
     }
 
     const { password_hash, ...userWithoutPassword } = updatedUser; // eslint-disable-line
@@ -107,7 +106,7 @@ export default class UserService {
     const user = await this.userRepository.delete(id);
 
     if (user === null) {
-      throw new Error('Usuário inexistente.');
+      throw new NotFoundError('Usuário inexistente.');
     }
 
     const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line

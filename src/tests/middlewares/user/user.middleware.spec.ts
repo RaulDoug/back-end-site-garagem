@@ -10,7 +10,7 @@ import {
 import type { NextFunction, Request, Response } from 'express';
 import { z, type ZodType } from 'zod';
 import { authenticateJWT } from '#middlewares/auth.middleware.js';
-import { authorizeRoles } from '#middlewares/role.middleware.js';
+import { authorizeRoles, includeDeletedValidateRole } from '#middlewares/role.middleware.js';
 import { validate } from '#middlewares/validate.middleware.js';
 import { validateToken } from '#utils/jwt.util.js';
 import { userRepository } from '#repositories/user.repository.js';
@@ -292,5 +292,64 @@ describe('validate', () => {
     expect(next).toHaveBeenCalledWith(error);
     expect(res.status).not.toHaveBeenCalled();
     expect(res.json).not.toHaveBeenCalled();
+  });
+});
+
+describe('includeDeletedValidateRole', () => {
+  let res: Response;
+  let next: NextFunction;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    res = createResponse();
+    next = vi.fn() as unknown as NextFunction;
+  });
+
+  it('deve chamar next quando include_deleted não for enviado', () => {
+    const req = createRequest({ query: {}, user: { role: 'VENDEDOR' } as any });
+
+    includeDeletedValidateRole(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('deve chamar next quando include_deleted=false mesmo se não for ADMIN', () => {
+    const req = createRequest({ query: { include_deleted: 'false' }, user: { role: 'VENDEDOR' } as any });
+
+    includeDeletedValidateRole(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('deve chamar next quando include_deleted=true e o usuário for ADMIN', () => {
+    const req = createRequest({ query: { include_deleted: 'true' }, user: { role: 'ADMIN' } as any });
+
+    includeDeletedValidateRole(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('deve retornar 403 quando include_deleted=true e o usuário for VENDEDOR', () => {
+    const req = createRequest({ query: { include_deleted: 'true' }, user: { role: 'VENDEDOR' } as any });
+
+    includeDeletedValidateRole(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Acesso proibido. Permissão insuficiente para incluir registros excluídos.',
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('deve retornar 403 quando include_deleted=true e não houver req.user', () => {
+    const req = createRequest({ query: { include_deleted: 'true' } });
+
+    includeDeletedValidateRole(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
   });
 });

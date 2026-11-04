@@ -31,7 +31,7 @@ type MockUserService = {
   create: Mock;
   login: Mock;
   findById: Mock;
-  findAll: Mock;
+  find: Mock;
   update: Mock;
   delete: Mock;
 };
@@ -40,7 +40,7 @@ const createMockUserService = (): MockUserService => ({
   create: vi.fn(),
   login: vi.fn(),
   findById: vi.fn(),
-  findAll: vi.fn(),
+  find: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
 });
@@ -118,42 +118,27 @@ describe('UserController', () => {
       });
     });
 
-    it('deve mapear e-mail duplicado para 409', async () => {
+    it('deve propagar erro quando o e-mail for duplicado', async () => {
       const req = createRequest({ body });
-      userService.create.mockRejectedValue(
-        new Error('E-mail já cadastrado')
-      );
+      const error = new Error('E-mail já cadastrado');
+      userService.create.mockRejectedValue(error);
 
-      await controller.register(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(409);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'E-mail já cadastrado',
-      });
+      await expect(controller.register(req, res)).rejects.toThrow(error);
     });
 
-    it('deve mapear ZodError para 400', async () => {
+    it('deve propagar ZodError', async () => {
       const req = createRequest({ body });
       userService.create.mockRejectedValue(zodError);
 
-      await controller.register(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: zodError.message });
+      await expect(controller.register(req, res)).rejects.toThrow(zodError);
     });
 
-    it('deve retornar 500 genérico para erro desconhecido', async () => {
+    it('deve propagar erro genérico desconhecido', async () => {
       const req = createRequest({ body });
-      userService.create.mockRejectedValue(
-        new Error('Falha inesperada no banco')
-      );
+      const error = new Error('Falha inesperada no banco');
+      userService.create.mockRejectedValue(error);
 
-      await controller.register(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Erro interno do servidor',
-      });
+      await expect(controller.register(req, res)).rejects.toThrow(error);
     });
   });
 
@@ -163,8 +148,12 @@ describe('UserController', () => {
       password: 'SenhaForte123!',
     };
 
+    const loginResult = {
+      token: 'jwt-token-fake',
+      user: safeUser,
+    };
+
     it('deve retornar 200 com o token e o usuário autenticado', async () => {
-      const loginResult = { token: 'token-jwt', user: safeUser };
       const req = createRequest({ body });
       userService.login.mockResolvedValue(loginResult);
 
@@ -178,28 +167,19 @@ describe('UserController', () => {
       });
     });
 
-    it('deve mapear credenciais inválidas para 401', async () => {
+    it('deve propagar erro quando as credenciais forem inválidas', async () => {
       const req = createRequest({ body });
-      userService.login.mockRejectedValue(
-        new Error('Credenciais inválidas')
-      );
+      const error = new Error('Credenciais inválidas');
+      userService.login.mockRejectedValue(error);
 
-      await controller.login(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Credenciais inválidas',
-      });
+      await expect(controller.login(req, res)).rejects.toThrow(error);
     });
 
-    it('deve mapear ZodError para 400', async () => {
+    it('deve propagar ZodError', async () => {
       const req = createRequest({ body });
       userService.login.mockRejectedValue(zodError);
 
-      await controller.login(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: zodError.message });
+      await expect(controller.login(req, res)).rejects.toThrow(zodError);
     });
   });
 
@@ -216,30 +196,21 @@ describe('UserController', () => {
       expect(res.json).toHaveBeenCalledWith({ userInfo: safeUser });
     });
 
-    it('deve mapear usuário inexistente para 404', async () => {
-      userService.findById.mockRejectedValue(
-        new Error('Usuário inexistente.')
-      );
+    it('deve propagar erro quando o usuário for inexistente', async () => {
+      const error = new Error('Usuário inexistente.');
+      userService.findById.mockRejectedValue(error);
 
-      await controller.findById(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Usuário inexistente.',
-      });
+      await expect(controller.findById(req, res)).rejects.toThrow(error);
     });
 
-    it('deve mapear ZodError para 400', async () => {
+    it('deve propagar ZodError', async () => {
       userService.findById.mockRejectedValue(zodError);
 
-      await controller.findById(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: zodError.message });
+      await expect(controller.findById(req, res)).rejects.toThrow(zodError);
     });
   });
 
-  describe('findAll', () => {
+  describe('find', () => {
     const user = {
       id: USER_ID,
       email: USER_EMAIL,
@@ -247,48 +218,33 @@ describe('UserController', () => {
     };
 
     it.each([
-      ['true', true],
-      ['false', false],
-      ['abc', false],
-      ['', false],
-      [undefined, false],
+      ['true', { filters: [], includeDeleted: true }],
+      ['false', { filters: [] }],
+      ['abc', { filters: [] }],
+      ['', { filters: [] }],
+      [undefined, { filters: [] }],
     ])(
-      'deve interpretar include_deleted=%s como %s',
-      async (rawValue, expected) => {
+      'deve interpretar include_deleted=%s gerando filtros %o',
+      async (rawValue, expectedFilters) => {
         const query =
           rawValue === undefined ? {} : { include_deleted: rawValue };
         const req = createRequest({ query, user });
-        userService.findAll.mockResolvedValue([safeUser]);
+        userService.find.mockResolvedValue([safeUser]);
 
-        await controller.findAll(req, res);
+        await controller.find(req, res);
 
-        expect(userService.findAll).toHaveBeenCalledWith(expected, 'ADMIN');
+        expect(userService.find).toHaveBeenCalledWith(expectedFilters);
         expect(res.status).toHaveBeenCalledWith(200);
         expect(res.json).toHaveBeenCalledWith({ users: [safeUser] });
       }
     );
 
-    it('deve usar VENDEDOR como role padrão quando req.user não existir', async () => {
-      const req = createRequest({ query: { include_deleted: 'true' } });
-      userService.findAll.mockResolvedValue([]);
-
-      await controller.findAll(req, res);
-
-      expect(userService.findAll).toHaveBeenCalledWith(true, 'VENDEDOR');
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ users: [] });
-    });
-
-    it('deve retornar 500 genérico para erro desconhecido', async () => {
+    it('deve propagar erro desconhecido', async () => {
       const req = createRequest({ query: {}, user });
-      userService.findAll.mockRejectedValue(new Error('Falha na listagem'));
+      const error = new Error('Falha na listagem');
+      userService.find.mockRejectedValue(error);
 
-      await controller.findAll(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Erro interno do servidor',
-      });
+      await expect(controller.find(req, res)).rejects.toThrow(error);
     });
   });
 
@@ -313,39 +269,24 @@ describe('UserController', () => {
       });
     });
 
-    it('deve mapear usuário inexistente para 404', async () => {
-      userService.update.mockRejectedValue(
-        new Error('Usuário inexistente.')
-      );
+    it('deve propagar erro quando o usuário for inexistente', async () => {
+      const error = new Error('Usuário inexistente.');
+      userService.update.mockRejectedValue(error);
 
-      await controller.update(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Usuário inexistente.',
-      });
+      await expect(controller.update(req, res)).rejects.toThrow(error);
     });
 
-    it('deve mapear ausência de campos para 400', async () => {
-      userService.update.mockRejectedValue(
-        new Error('Nenhum campo informado para atualização.')
-      );
+    it('deve propagar erro quando houver ausência de campos', async () => {
+      const error = new Error('Nenhum campo informado para atualização.');
+      userService.update.mockRejectedValue(error);
 
-      await controller.update(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Nenhum campo informado para atualização.',
-      });
+      await expect(controller.update(req, res)).rejects.toThrow(error);
     });
 
-    it('deve mapear ZodError para 400', async () => {
+    it('deve propagar ZodError', async () => {
       userService.update.mockRejectedValue(zodError);
 
-      await controller.update(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: zodError.message });
+      await expect(controller.update(req, res)).rejects.toThrow(zodError);
     });
   });
 
@@ -366,30 +307,18 @@ describe('UserController', () => {
       });
     });
 
-    it('deve mapear usuário inexistente para 404', async () => {
-      userService.delete.mockRejectedValue(
-        new Error('Usuário inexistente.')
-      );
+    it('deve propagar erro quando o usuário for inexistente', async () => {
+      const error = new Error('Usuário inexistente.');
+      userService.delete.mockRejectedValue(error);
 
-      await controller.delete(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Usuário inexistente.',
-      });
+      await expect(controller.delete(req, res)).rejects.toThrow(error);
     });
 
-    it('deve retornar 500 genérico para erro desconhecido', async () => {
-      userService.delete.mockRejectedValue(
-        new Error('Falha inesperada ao deletar')
-      );
+    it('deve propagar erro desconhecido', async () => {
+      const error = new Error('Falha inesperada ao deletar');
+      userService.delete.mockRejectedValue(error);
 
-      await controller.delete(req, res);
-
-      expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Erro interno do servidor',
-      });
+      await expect(controller.delete(req, res)).rejects.toThrow(error);
     });
   });
 });

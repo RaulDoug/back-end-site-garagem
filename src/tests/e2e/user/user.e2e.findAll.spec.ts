@@ -113,14 +113,12 @@ describe('GET /api/user - listagem e filtro de deletados', () => {
     expect(emails).toContain(deletedListUser.email);
   });
 
-  it('deve ignorar include_deleted=true quando o usuário for VENDEDOR', async () => {
+  it('deve retornar 403 quando o usuário for VENDEDOR e enviar include_deleted=true', async () => {
     const res = await getAll(vendedorToken, '?include_deleted=true');
 
-    expect(res.status).toBe(200);
-
-    const emails = emailsFrom(res.body.users);
-    expect(emails).toContain(activeListUser.email);
-    expect(emails).not.toContain(deletedListUser.email);
+    expect(res.status).toBe(403);
+    expect(res.body).toHaveProperty('message');
+    expect(res.body.message).toContain('Permissão insuficiente para incluir registros excluídos');
   });
 
   it('deve ignorar include_deleted com valor abc', async () => {

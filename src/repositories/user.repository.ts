@@ -1,4 +1,5 @@
 import pool from '../config/database';
+import BaseRepository from './base.repository';
 
 export interface User {
   id: string;
@@ -22,32 +23,17 @@ export interface CreateUserData {
   commission_rates?: number;
 }
 
-export class UserRepository {
+export class UserRepository extends BaseRepository<User, CreateUserData> {
+  constructor() {
+    super('users');
+  }
+
   async findByEmail(email: string): Promise<User | null> {
     const query = 'SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL LIMIT 1;';
     const result = await pool.query<User>(query, [email]);
 
     return result.rows[0] || null;
   }
-
-  async findById(id: string): Promise<User | null> {
-    const query = 'SELECT * from users WHERE id = $1 AND deleted_at IS NULL LIMIT 1;';
-    const result = await pool.query<User>(query, [id]);
-
-    return result.rows[0] || null;
-  }
-
-  async findAll(include_deleted: boolean): Promise<User[]> {
-    let query = 'SELECT * FROM users';
-
-    if (!include_deleted) {
-      query += ' WHERE deleted_at IS NULL';
-    }
-
-    const result = await pool.query<User>(query);
-
-    return result.rows;
-  };
 
   async create(data: CreateUserData): Promise<User> {
     const query = `
@@ -67,46 +53,6 @@ export class UserRepository {
 
     const result = await pool.query<User>(query, values);
     return result.rows[0];
-  }
-
-  async update(id: string, data: Partial<CreateUserData>): Promise<User | null> {
-    const fields = Object.keys(data);
-    const values = Object.values(data);
-
-    if (fields.length === 0) return null;
-
-    // Gerar dinâmicamente a clausula do set
-    const setClause = fields
-      .map((field, index) => `${field} = $${index + 1}`)
-      .join(', ');
-
-    // Definir o id sempre como ultimo parâmetro da query
-    const idIndex = fields.length + 1;
-
-    const query = `
-      UPDATE users
-      SET ${setClause}
-      WHERE id = $${idIndex}
-      RETURNING *;
-    `;
-
-    const result = await pool.query<User>(query, [...values, id]);
-
-    return result.rows[0] || null;
-  }
-
-  async delete(id: string): Promise<User | null> {
-    const query = `
-      UPDATE users
-      SET deleted_at = NOW(), is_active = false
-      WHERE id = $1
-      AND deleted_at IS NULL
-      RETURNING *;
-    `;
-
-    const result = await pool.query<User>(query, [id]);
-
-    return result.rows[0] || null;
   }
 }
 
