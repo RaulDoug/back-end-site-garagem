@@ -4,9 +4,9 @@ import { createUserE2EContext } from './user.e2e.helpers.js';
 const { app, request, pool, uniqueEmail, register, signToken, cleanup } =
   createUserE2EContext();
 
-describe('GET /api/user - listagem e filtro de deletados', () => {
+describe('GET /api/users - listagem e filtro de deletados', () => {
   const getAll = (token?: string, query = '') => {
-    const req = request(app).get(`/api/user${query}`);
+    const req = request(app).get(`/api/users${query}`);
 
     return token === undefined
       ? req
@@ -56,7 +56,7 @@ describe('GET /api/user - listagem e filtro de deletados', () => {
   afterAll(cleanup);
 
   it('deve retornar 401 quando não houver token', async () => {
-    const res = await request(app).get('/api/user');
+    const res = await request(app).get('/api/users');
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({

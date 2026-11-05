@@ -4,7 +4,7 @@ import { createUserE2EContext } from './user.e2e.helpers.js';
 const { app, request, pool, uniqueEmail, register, signToken, cleanup } =
   createUserE2EContext();
 
-describe('PUT /api/user/:id - atualização e casos de borda', () => {
+describe('PUT /api/users/:id - atualização e casos de borda', () => {
   const UUID_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
   const UUID_INJETADO = '11111111-1111-4111-8111-111111111111';
 
@@ -16,7 +16,7 @@ describe('PUT /api/user/:id - atualização e casos de borda', () => {
     body: Record<string, unknown>,
     token?: string
   ) => {
-    const req = request(app).put(`/api/user/${id}`).send(body);
+    const req = request(app).put(`/api/users/${id}`).send(body);
 
     return token === undefined
       ? req

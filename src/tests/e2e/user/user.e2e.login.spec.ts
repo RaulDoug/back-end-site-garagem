@@ -7,7 +7,7 @@ import {
 
 const { pool, uniqueEmail, register, login, cleanup } = createUserE2EContext();
 
-describe('POST /api/user/login - autenticação e casos de borda', () => {
+describe('POST /api/users/login - autenticação e casos de borda', () => {
   const INVALID_CREDENTIALS_MESSAGE = 'Credenciais inválidas';
   const loginUser = {
     name: 'Paula Mendes',

@@ -18,7 +18,7 @@ describe('E2E - Fluxo principal de autenticação', () => {
 
   afterAll(cleanup);
 
-  it('deve registrar um novo usuário com sucesso (POST /api/user/register)', async () => {
+  it('deve registrar um novo usuário com sucesso (POST /api/users/register)', async () => {
     const res = await register(testUser);
 
     expect(res.status).toBe(201);
@@ -32,7 +32,7 @@ describe('E2E - Fluxo principal de autenticação', () => {
     createdUserId = res.body.user.id;
   });
 
-  it('deve autenticar o usuário e retornar o token JWT (POST /api/user/login)', async () => {
+  it('deve autenticar o usuário e retornar o token JWT (POST /api/users/login)', async () => {
     const res = await login({
       email: testUser.email,
       password: testUser.password,
@@ -47,8 +47,8 @@ describe('E2E - Fluxo principal de autenticação', () => {
     token = res.body.userInfo.token;
   });
 
-  it('deve rejeitar acesso à rota protegida sem token (GET /api/user/:id)', async () => {
-    const res = await request(app).get(`/api/user/${createdUserId}`);
+  it('deve rejeitar acesso à rota protegida sem token (GET /api/users/:id)', async () => {
+    const res = await request(app).get(`/api/users/${createdUserId}`);
 
     expect(res.status).toBe(401);
     expect(res.body.message).toBe(
@@ -58,7 +58,7 @@ describe('E2E - Fluxo principal de autenticação', () => {
 
   it('deve liberar acesso à rota protegida com token Bearer válido', async () => {
     const res = await request(app)
-      .get(`/api/user/${createdUserId}`)
+      .get(`/api/users/${createdUserId}`)
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);

@@ -4,14 +4,14 @@ import { createUserE2EContext } from './user.e2e.helpers.js';
 const { app, request, pool, uniqueEmail, register, login, signToken, cleanup } =
   createUserE2EContext();
 
-describe('DELETE /api/user/:id - exclusão e casos de borda', () => {
+describe('DELETE /api/users/:id - exclusão e casos de borda', () => {
   const UUID_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
 
   const adminToken = signToken('ADMIN');
   const vendedorToken = signToken('VENDEDOR');
 
   const deleteUser = (id: string, token?: string) => {
-    const req = request(app).delete(`/api/user/${id}`);
+    const req = request(app).delete(`/api/users/${id}`);
 
     return token === undefined
       ? req
@@ -20,11 +20,11 @@ describe('DELETE /api/user/:id - exclusão e casos de borda', () => {
 
   const getById = (id: string, token: string) =>
     request(app)
-      .get(`/api/user/${id}`)
+      .get(`/api/users/${id}`)
       .set('Authorization', `Bearer ${token}`);
 
   const getAll = (token: string) =>
-    request(app).get('/api/user').set('Authorization', `Bearer ${token}`);
+    request(app).get('/api/users').set('Authorization', `Bearer ${token}`);
 
   const baseUser = (label: string) => ({
     name: 'Usuário para Exclusão',

@@ -96,7 +96,7 @@ export const createUserE2EContext = () => {
     }
 
     let req = request(app)
-      .post('/api/user/register')
+      .post('/api/users/register')
       .set('X-Forwarded-For', ip);
 
     if (token) {
@@ -114,7 +114,7 @@ export const createUserE2EContext = () => {
 
   const login = async (payload: Record<string, unknown>, ip = nextIp()) =>
     request(app)
-      .post('/api/user/login')
+      .post('/api/users/login')
       .set('X-Forwarded-For', ip)
       .send(payload);
 

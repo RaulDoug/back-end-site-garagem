@@ -8,11 +8,13 @@ import { createUserSchema, deleteUserSchema, findByIdUserSchema, loginUserSchema
 const router = Router();
 const userController = new UserController();
 
-router.get('/', authenticateJWT, authorizeRoles('ADMIN', 'VENDEDOR'), includeDeletedValidateRole, userController.find);
-router.get('/:id', validate(findByIdUserSchema), authenticateJWT, authorizeRoles('ADMIN', 'VENDEDOR'), userController.findById);
-router.post('/register', registerLimit, authenticateJWT, authorizeRoles('ADMIN'), validate(createUserSchema), userController.register);
 router.post('/login', loginLimit, validate(loginUserSchema), userController.login);
-router.put('/:id', validate(updateUserSchema), authenticateJWT, authorizeRoles('ADMIN'), userController.update);
-router.delete('/:id', validate(deleteUserSchema), authenticateJWT, authorizeRoles('ADMIN'), userController.delete);
+router.get('/:id', validate(findByIdUserSchema), authenticateJWT, authorizeRoles('ADMIN', 'VENDEDOR'), userController.findById);
+
+router.use(authenticateJWT);
+router.get('/', authorizeRoles('ADMIN', 'VENDEDOR'), includeDeletedValidateRole, userController.find);
+router.post('/register', registerLimit, authorizeRoles('ADMIN'), validate(createUserSchema), userController.register);
+router.put('/:id', validate(updateUserSchema), authorizeRoles('ADMIN'), userController.update);
+router.delete('/:id', validate(deleteUserSchema), authorizeRoles('ADMIN'), userController.delete);
 
 export default router;

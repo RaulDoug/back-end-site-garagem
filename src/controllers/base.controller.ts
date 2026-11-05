@@ -1,9 +1,10 @@
 import BaseService from '#services/base.service.js';
 import { parseFilters } from '#utils/parse-filter.util.js';
 import { Request, Response } from 'express';
+import { QueryResultRow } from 'pg';
 
 export default class BaseController<
-    T extends Record<string, unknown>,
+    T extends QueryResultRow,
     C = Record<string, unknown>
 > {
   constructor(protected service: BaseService<T, C>) {}

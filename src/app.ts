@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import userRoutes from '#routes/user.routes.js';
+import storeRoutes from '#routes/store.routes.js';
 import errorHandler from '#middlewares/error.middleware.js';
 
 const app = express();
@@ -17,7 +18,9 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 
-app.use('/api/user', userRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/stores', storeRoutes);
+
 
 app.use(errorHandler);
 

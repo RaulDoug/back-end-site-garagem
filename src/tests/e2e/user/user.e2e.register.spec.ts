@@ -11,7 +11,7 @@ const {
   cleanup,
 } = createUserE2EContext();
 
-describe('POST /api/user/register - validações e casos de borda', () => {
+describe('POST /api/users/register - validações e casos de borda', () => {
   afterAll(cleanup);
 
   describe('duplicidade de e-mail', () => {

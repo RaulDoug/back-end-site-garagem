@@ -5,7 +5,13 @@ export interface Store {
     id: string;
     name: string;
     phone: string;
-    address: string;
+    zip_code: string;
+    street: string;
+    number: string;
+    complement?: string | null;
+    neighborhood: string;
+    city: string;
+    state: string;
     cnpj: string;
     is_active: boolean;
     deleted_at: Date | null;
@@ -15,8 +21,14 @@ export interface Store {
 export interface CreateStoreData {
     name: string;
     phone: string;
-    address: string;
     cnpj: string;
+    zip_code: string;
+    street: string;
+    number: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    complement?: string;
 }
 
 export class StoreRepository extends BaseRepository<Store, CreateStoreData> {

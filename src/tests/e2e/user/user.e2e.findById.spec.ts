@@ -4,11 +4,11 @@ import { createUserE2EContext } from './user.e2e.helpers.js';
 const { app, request, pool, uniqueEmail, register, signToken, cleanup } =
   createUserE2EContext();
 
-describe('GET /api/user/:id - autorização e casos de borda', () => {
+describe('GET /api/users/:id - autorização e casos de borda', () => {
   const UUID_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
 
   const getById = (id: string, token?: string) => {
-    const req = request(app).get(`/api/user/${id}`);
+    const req = request(app).get(`/api/users/${id}`);
 
     return token === undefined
       ? req
@@ -117,7 +117,7 @@ describe('GET /api/user/:id - autorização e casos de borda', () => {
 
   it('deve retornar 401 quando o token não tiver o prefixo Bearer', async () => {
     const res = await request(app)
-      .get(`/api/user/${targetUserId}`)
+      .get(`/api/users/${targetUserId}`)
       .set('Authorization', vendedorToken);
 
     expect(res.status).toBe(401);
@@ -128,7 +128,7 @@ describe('GET /api/user/:id - autorização e casos de borda', () => {
 
   it('deve retornar 401 quando o prefixo bearer estiver em minúsculo', async () => {
     const res = await request(app)
-      .get(`/api/user/${targetUserId}`)
+      .get(`/api/users/${targetUserId}`)
       .set('Authorization', `bearer ${vendedorToken}`);
 
     expect(res.status).toBe(401);
@@ -139,7 +139,7 @@ describe('GET /api/user/:id - autorização e casos de borda', () => {
 
   it('deve retornar 401 quando o Bearer estiver vazio', async () => {
     const res = await request(app)
-      .get(`/api/user/${targetUserId}`)
+      .get(`/api/users/${targetUserId}`)
       .set('Authorization', 'Bearer ');
 
     expect(res.status).toBe(401);
@@ -188,7 +188,7 @@ describe('GET /api/user/:id - autorização e casos de borda', () => {
   });
 
   it('deve retornar 400 antes de exigir autenticação quando o id for inválido', async () => {
-    const res = await request(app).get('/api/user/id-invalido');
+    const res = await request(app).get('/api/users/id-invalido');
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({
