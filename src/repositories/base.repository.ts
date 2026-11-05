@@ -7,7 +7,7 @@ interface RepositoryOptions {
     hasActiveStatus?: boolean;
 }
 
-interface FindParams {
+export interface FindParams {
     field: string;
     value: unknown;
     operator: '=' | '>=' | '<=' | 'ILIKE' | 'IN';

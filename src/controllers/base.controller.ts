@@ -1,4 +1,5 @@
 import BaseService from '#services/base.service.js';
+import { parseFilters } from '#utils/parse-filter.util.js';
 import { Request, Response } from 'express';
 
 export default class BaseController<
@@ -16,7 +17,7 @@ export default class BaseController<
   };
 
   find = async (req: Request, res: Response): Promise<Response> => {
-    const filters = req.query.include_deleted === 'true' ? { filters: [], includeDeleted: true } : { filters: [] };
+    const filters = parseFilters(req.query);
 
     const items = await this.service.find(filters);
 

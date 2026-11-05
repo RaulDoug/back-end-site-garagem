@@ -1,5 +1,6 @@
 import { CreateUserInput, LoginUserInput, UpdateUserBody } from '#schemas/user.schema.js';
 import UserService from '#services/user.service.js';
+import { parseFilters } from '#utils/parse-filter.util.js';
 import { Request, Response } from 'express';
 
 export default class UserController {
@@ -36,7 +37,7 @@ export default class UserController {
   };
 
   find = async (req: Request, res: Response) => {
-    const filters = req.query.include_deleted === 'true' ? { filters: [], includeDeleted: true } : { filters: [] };
+    const filters = parseFilters(req.query);
 
     const users = await this.userService.find(filters);
 
