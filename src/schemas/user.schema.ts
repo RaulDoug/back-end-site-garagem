@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { baseFindQuerySchema } from './base.schema';
 
 
 const nameValidation = z.string().trim().min(2, 'O nome deve conter no mínimo 2 caracteres').max(255);
@@ -68,6 +69,14 @@ export const findByIdUserSchema = z.object({
 
 export const findByEmailUserSchema = z.object({
   query: z.object({ email: emailValidation })
+});
+
+export const findUserSchema = z.object({
+  query: baseFindQuerySchema.extend({
+    name_like: z.string().optional(),
+    email_like: z.string().optional(),
+    role: roleValidation.optional()
+  })
 });
 
 

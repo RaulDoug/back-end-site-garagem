@@ -10,6 +10,8 @@ export function parseFilters(query: Record<string, unknown>): FindData {
   for (const [key, rawValue] of Object.entries(query)) {
     if (
       key === 'include_deleted' ||
+      key === 'page' ||
+      key === 'limit' ||
       rawValue === undefined ||
       rawValue === null ||
       rawValue === ''

@@ -1,0 +1,2359 @@
+openapi: 3.1.0
+info:
+  title: API Garagem de Veículos
+  version: 1.0.0
+  description: >
+    API RESTful desenvolvida em Node.js com Express e TypeScript para gerenciamento
+    de catálogo de veículos, lojas, marcas, modelos, opcionais e controle de usuários.
+servers:
+  - url: http://localhost:3000
+    description: Servidor de Desenvolvimento Local
+
+tags:
+  - name: Health
+    description: Verificação de integridade e status da aplicação
+  - name: Usuários
+    description: Autenticação, registro e gestão de usuários (Controle de Acesso / RBAC)
+  - name: Lojas
+    description: Gerenciamento de concessionárias e unidades parceiras
+  - name: Marcas
+    description: Catálogo de fabricantes de veículos
+  - name: Modelos
+    description: Catálogo de modelos vinculados às marcas
+  - name: Opcionais
+    description: Gerenciamento de opcionais e equipamentos dos veículos
+  - name: Veículos
+    description: Vitrine pública e backoffice administrativo para estoque de veículos
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health Check da Aplicação
+      description: Retorna o status de funcionamento, timestamp atual e tempo de atividade (uptime).
+      operationId: getHealth
+      responses:
+        '200':
+          description: Serviço operando normalmente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                timestamp: "2026-11-06T18:00:00.000Z"
+                uptime: 1234.56
+
+  /api/users/login:
+    post:
+      tags:
+        - Usuários
+      summary: Autenticação de Usuário
+      description: Realiza a autenticação de credenciais e retorna o token JWT e dados do usuário. Possui Rate Limit de 5 requisições por 15 minutos por IP.
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginUserInput'
+            example:
+              email: "paula.mendes@garagem.com"
+              password: "LoginSeguro123!"
+      responses:
+        '200':
+          description: Login realizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Erro de validação de schema Zod
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Credenciais inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Credenciais inválidas"
+        '429':
+          description: Limite de tentativas de login excedido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Muitas tentativas de login neste IP, tente novamente após 15 minutos."
+
+  /api/users/register:
+    post:
+      tags:
+        - Usuários
+      summary: Cadastro de Usuário (Admin)
+      description: Cria um novo usuário no sistema. Requer autenticação com perfil ADMIN. Possui Rate Limit de 5 cadastros por hora por IP.
+      operationId: registerUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserInput'
+            example:
+              name: "Paula Mendes"
+              email: "paula.mendes@garagem.com"
+              password: "LoginSeguro123!"
+              phone: "(37) 97777-6666"
+              role: "VENDEDOR"
+              commission_rates: 5.5
+      responses:
+        '201':
+          description: Usuário criado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserCreatedResponse'
+        '400':
+          description: Erro de validação Zod (senha fraca, dados ausentes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Não autenticado ou token inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Acesso proibido. Permissão restrita a administradores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflito. E-mail já cadastrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "E-mail já cadastrado"
+        '429':
+          description: Limite de registros excedido por IP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/users:
+    get:
+      tags:
+        - Usuários
+      summary: Listagem de Usuários
+      description: Lista usuários com suporte a paginação e filtros textuais. Requer perfil ADMIN ou VENDEDOR. Parâmetro include_deleted restrito a ADMIN.
+      operationId: listUsers
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/IsActiveQuery'
+        - $ref: '#/components/parameters/IncludeDeletedQuery'
+        - $ref: '#/components/parameters/CreatedAtGteQuery'
+        - $ref: '#/components/parameters/CreatedAtLteQuery'
+        - $ref: '#/components/parameters/UpdatedAtGteQuery'
+        - $ref: '#/components/parameters/UpdatedAtLteQuery'
+        - name: name_like
+          in: query
+          description: Filtro parcial por nome do usuário
+          required: false
+          schema:
+            type: string
+        - name: email_like
+          in: query
+          description: Filtro parcial por e-mail do usuário
+          required: false
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: Filtro exato pelo papel do usuário
+          required: false
+          schema:
+            $ref: '#/components/schemas/UserRole'
+      responses:
+        '200':
+          description: Lista de usuários retornada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/users/{id}:
+    get:
+      tags:
+        - Usuários
+      summary: Buscar Usuário por ID
+      description: Retorna os dados de um usuário pelo seu UUID. Permitido para ADMIN e VENDEDOR.
+      operationId: getUserById
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Usuário localizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Usuários
+      summary: Atualizar Usuário
+      description: Atualiza os dados de um usuário existente. Restrito ao perfil ADMIN.
+      operationId: updateUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserBody'
+            example:
+              name: "Paula Mendes Atualizada"
+              phone: "(37) 98888-2222"
+              role: "ADMIN"
+              commission_rates: 7.0
+      responses:
+        '200':
+          description: Usuário atualizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Usuários
+      summary: Excluir Usuário (Soft Delete)
+      description: Realiza a exclusão lógica do usuário. Restrito a ADMIN. Não é permitido que o próprio usuário autenticado exclua a si mesmo.
+      operationId: deleteUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Usuário excluído com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSingleResponse'
+        '400':
+          description: Requisição inválida (ex. auto-exclusão proibida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Não é possível deletar o próprio usuário."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/stores:
+    get:
+      tags:
+        - Lojas
+      summary: Listar Lojas
+      description: Lista lojas com filtros avançados. Requer autenticação (ADMIN ou VENDEDOR).
+      operationId: listStores
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/IsActiveQuery'
+        - $ref: '#/components/parameters/IncludeDeletedQuery'
+        - name: name_like
+          in: query
+          schema:
+            type: string
+        - name: cnpj
+          in: query
+          schema:
+            type: string
+        - name: city_like
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 2
+      responses:
+        '200':
+          description: Lista de lojas retornada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags:
+        - Lojas
+      summary: Cadastrar Nova Loja
+      description: Cadastra uma nova unidade de loja. Restrito ao perfil ADMIN.
+      operationId: createStore
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStoreInput'
+            example:
+              name: "Concessionária Horizonte"
+              phone: "(37) 98888-7777"
+              cnpj: "12345678000199"
+              zip_code: "35500000"
+              street: "Av. Paulista"
+              number: "1000"
+              neighborhood: "Bela Vista"
+              city: "São Paulo"
+              state: "SP"
+              complement: "Sala 101"
+      responses:
+        '201':
+          description: Loja criada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: CNPJ já cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "CNPJ já cadastrado"
+
+  /api/stores/{id}:
+    get:
+      tags:
+        - Lojas
+      summary: Buscar Loja por ID
+      description: Retorna dados detalhados da loja pelo UUID. Permitido para ADMIN e VENDEDOR.
+      operationId: getStoreById
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Loja encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Lojas
+      summary: Atualizar Loja
+      description: Atualiza os dados de uma loja. Restrito a ADMIN.
+      operationId: updateStore
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStoreBody'
+            example:
+              phone: "(37) 99999-0000"
+              complement: "Bloco B"
+      responses:
+        '200':
+          description: Loja atualizada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: CNPJ já em uso por outra loja
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Lojas
+      summary: Excluir Loja (Soft Delete)
+      description: Exclusão lógica de registro da loja. Restrito a ADMIN.
+      operationId: deleteStore
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Loja excluída com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/stores/cnpj/{cnpj}:
+    get:
+      tags:
+        - Lojas
+      summary: Buscar Loja por CNPJ
+      description: Consulta registro de loja pelo CNPJ (14 dígitos). Permitido para ADMIN e VENDEDOR.
+      operationId: getStoreByCnpj
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: cnpj
+          in: path
+          required: true
+          description: CNPJ numérico ou formatado da loja
+          schema:
+            type: string
+          example: "12345678000199"
+      responses:
+        '200':
+          description: Loja localizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  store:
+                    $ref: '#/components/schemas/Store'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/brands:
+    get:
+      tags:
+        - Marcas
+      summary: Listar Marcas
+      description: Retorna a lista de marcas de veículos. Permitido para ADMIN e VENDEDOR.
+      operationId: listBrands
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/IsActiveQuery'
+        - $ref: '#/components/parameters/IncludeDeletedQuery'
+        - name: name
+          in: query
+          schema:
+            type: string
+        - name: name_like
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lista de marcas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags:
+        - Marcas
+      summary: Cadastrar Marca
+      description: Cadastra uma nova marca de veículo. Requer autenticação de ADMIN ou VENDEDOR.
+      operationId: createBrand
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBrandInput'
+            example:
+              name: "Toyota"
+      responses:
+        '201':
+          description: Marca cadastrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/brands/{id}:
+    get:
+      tags:
+        - Marcas
+      summary: Buscar Marca por ID
+      description: Retorna os dados da marca pelo UUID. Permitido para ADMIN e VENDEDOR.
+      operationId: getBrandById
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Marca encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Marcas
+      summary: Atualizar Marca
+      description: Atualiza os dados da marca. Permitido para ADMIN e VENDEDOR.
+      operationId: updateBrand
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBrandBody'
+            example:
+              name: "Toyota do Brasil"
+      responses:
+        '200':
+          description: Marca atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Marcas
+      summary: Excluir Marca (Soft Delete)
+      description: Exclusão lógica da marca. Restrito ao perfil ADMIN.
+      operationId: deleteBrand
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Marca excluída com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/features:
+    get:
+      tags:
+        - Opcionais
+      summary: Listar Opcionais
+      description: Retorna a lista de itens/opcionais veiculares (ex. Teto Solar, Bancos de Couro). Permitido para ADMIN e VENDEDOR.
+      operationId: listFeatures
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - name: name
+          in: query
+          schema:
+            type: string
+        - name: name_like
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lista de opcionais retornada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags:
+        - Opcionais
+      summary: Cadastrar Opcional
+      description: Cadastra um novo item opcional. Permitido para ADMIN e VENDEDOR.
+      operationId: createFeature
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeatureInput'
+            example:
+              name: "Teto Solar Panorâmico"
+      responses:
+        '201':
+          description: Opcional cadastrado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/features/{id}:
+    get:
+      tags:
+        - Opcionais
+      summary: Buscar Opcional por ID
+      description: Retorna os detalhes de um opcional pelo UUID. Permitido para ADMIN e VENDEDOR.
+      operationId: getFeatureById
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Opcional encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Opcionais
+      summary: Atualizar Opcional
+      description: Atualiza o nome de um opcional. Permitido para ADMIN e VENDEDOR.
+      operationId: updateFeature
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFeatureBody'
+            example:
+              name: "Teto Solar Elétrico"
+      responses:
+        '200':
+          description: Opcional atualizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Opcionais
+      summary: Excluir Opcional (Soft Delete)
+      description: Exclusão lógica do opcional. Restrito a ADMIN.
+      operationId: deleteFeature
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Opcional excluído com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/models:
+    get:
+      tags:
+        - Modelos
+      summary: Listar Modelos
+      description: Retorna modelos de veículos com filtros por marca, status e busca de nome. Permitido para ADMIN e VENDEDOR.
+      operationId: listModels
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/IsActiveQuery'
+        - $ref: '#/components/parameters/IncludeDeletedQuery'
+        - name: brand_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: name
+          in: query
+          schema:
+            type: string
+        - name: name_like
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lista de modelos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags:
+        - Modelos
+      summary: Cadastrar Modelo
+      description: Cadastra um novo modelo associado a uma marca. Permitido para ADMIN e VENDEDOR.
+      operationId: createModel
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModelInput'
+            example:
+              brand_id: "c4a7e912-6b94-4d6b-9c2f-0f6a2b8e3a1d"
+              name: "Corolla XEi"
+      responses:
+        '201':
+          description: Modelo cadastrado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/models/{id}:
+    get:
+      tags:
+        - Modelos
+      summary: Buscar Modelo por ID
+      description: Retorna os dados do modelo pelo UUID. Permitido para ADMIN e VENDEDOR.
+      operationId: getModelById
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Modelo encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Modelos
+      summary: Atualizar Modelo
+      description: Atualiza dados do modelo (nome ou vínculo com marca). Pelo menos um campo deve ser informado. Permitido para ADMIN e VENDEDOR.
+      operationId: updateModel
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModelBody'
+            example:
+              name: "Corolla Altis Hybrid"
+      responses:
+        '200':
+          description: Modelo atualizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Modelos
+      summary: Excluir Modelo (Soft Delete)
+      description: Exclusão lógica do modelo. Restrito a ADMIN.
+      operationId: deleteModel
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Modelo excluído com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles:
+    get:
+      tags:
+        - Veículos
+      summary: Catálogo Público de Veículos (UC01)
+      description: >
+        Endpoint público com dados sanitizados (oculta placa completa, custos de aquisição e comissões).
+        Suporta paginação fixa (12, 24, 36, 48) e múltiplos filtros de catálogo.
+      operationId: findVehiclesPublic
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Quantidade de itens por página (deve ser 12, 24, 36 ou 48)
+          schema:
+            type: integer
+            enum: [12, 24, 36, 48]
+            default: 12
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/VehicleCategory'
+        - name: brand_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: model_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: fuel_type
+          in: query
+          schema:
+            $ref: '#/components/schemas/VehicleFuelType'
+        - name: transmission
+          in: query
+          schema:
+            $ref: '#/components/schemas/VehicleTransmission'
+        - name: min_price
+          in: query
+          schema:
+            type: number
+            minimum: 0
+        - name: max_price
+          in: query
+          schema:
+            type: number
+            minimum: 0
+        - name: min_year
+          in: query
+          schema:
+            type: integer
+            minimum: 1900
+        - name: max_year
+          in: query
+          schema:
+            type: integer
+            minimum: 1900
+        - name: max_mileage
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: plate_last_digit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 9
+        - name: feature_ids
+          in: query
+          description: Lista de UUIDs de opcionais separados por vírgula
+          schema:
+            type: string
+          example: "0a8ef153-bf30-4e3d-83b6-7bdf7d37a718,f5e18231-1552-4467-93be-ef9ce79868f0"
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/VehicleStatus'
+        - name: search
+          in: query
+          description: Busca textual global em título e descrição
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Catálogo paginado com dados públicos higienizados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleCatalogResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+    post:
+      tags:
+        - Veículos
+      summary: Cadastrar Veículo (UC06)
+      description: >
+        Cadastra um novo veículo no estoque. Restrito a ADMIN e VENDEDOR.
+        Validação condicional:
+        - `PROPRIO`: Requer `purchase_price > 0`.
+        - `CONSIGNADO`: Requer `owner_name`, `owner_contact`, `owner_price > 0` e `store_commission_rate >= 0`.
+      operationId: createVehicle
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVehicleInput'
+            examples:
+              veiculoProprio:
+                summary: Exemplo de Veículo Próprio
+                value:
+                  store_id: "70a6d0b9-5095-46b5-a6a3-a7d0dbba3e5f"
+                  model_id: "c4a7e912-6b94-4d6b-9c2f-0f6a2b8e3a1d"
+                  sale_type: "PROPRIO"
+                  title: "Toyota Corolla XEi 2.0 Flex Automático"
+                  description: "Veículo de único dono, revisões em dia na concessionária e pneus novos."
+                  sale_price: 110000
+                  purchase_price: 90000
+                  manufacture_year: 2022
+                  model_year: 2023
+                  mileage: 25000
+                  transmission: "AUTOMATICO"
+                  color: "Branco Perolizado"
+                  category: "SEDÃ"
+                  fuel_type: "FLEX"
+                  steering: "Elétrica"
+                  doors: 4
+                  full_license_plate: "ABC1D23"
+                  feature_ids:
+                    - "0a8ef153-bf30-4e3d-83b6-7bdf7d37a718"
+                    - "f5e18231-1552-4467-93be-ef9ce79868f0"
+              veiculoConsignado:
+                summary: Exemplo de Veículo Consignado
+                value:
+                  store_id: "70a6d0b9-5095-46b5-a6a3-a7d0dbba3e5f"
+                  model_id: "c4a7e912-6b94-4d6b-9c2f-0f6a2b8e3a1d"
+                  sale_type: "CONSIGNADO"
+                  title: "Honda Civic Touring 1.5 Turbo"
+                  description: "Consignado de cliente particular, impecável e laudo cautelar aprovado."
+                  sale_price: 125000
+                  owner_name: "Roberto Alencar"
+                  owner_contact: "(37) 98888-5555"
+                  owner_price: 118000
+                  store_commission_rate: 5.0
+                  manufacture_year: 2021
+                  model_year: 2022
+                  mileage: 38000
+                  transmission: "AUTOMATICO"
+                  color: "Preto"
+                  category: "SEDÃ"
+                  fuel_type: "GASOLINA"
+                  steering: "Elétrica"
+                  doors: 4
+                  full_license_plate: "XYZ9876"
+      responses:
+        '201':
+          description: Veículo cadastrado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Placa já cadastrada para outro veículo ativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Placa já cadastrada para outro veículo ativo"
+
+  /api/vehicles/compare:
+    get:
+      tags:
+        - Veículos
+      summary: Comparador Público de Veículos (UC02)
+      description: Permite comparar as especificações de 2 a 3 veículos simultaneamente. Aberto ao público.
+      operationId: compareVehicles
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          description: Lista de 2 a 3 UUIDs separados por vírgula
+          schema:
+            type: string
+          example: "0a8ef153-bf30-4e3d-83b6-7bdf7d37a718,f5e18231-1552-4467-93be-ef9ce79868f0"
+      responses:
+        '200':
+          description: Lista de 2 a 3 veículos com dados higienizados para o consumidor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VehiclePublic'
+        '400':
+          description: Menos de 2 ou mais de 3 veículos informados, ou formato de UUID inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /api/vehicles/admin:
+    get:
+      tags:
+        - Veículos
+      summary: Listagem Administrativa de Veículos (Backoffice UC06)
+      description: Retorna o catálogo administrativo completo. Permite visualizar dados conforme o papel (ADMIN, VENDEDOR, VISUALIZADOR).
+      operationId: findVehiclesAdmin
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/IncludeDeletedQuery'
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/VehicleCategory'
+        - name: brand_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: model_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/VehicleStatus'
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Catálogo administrativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleCatalogResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/vehicles/admin/{id}:
+    get:
+      tags:
+        - Veículos
+      summary: Detalhes Administrativos do Veículo
+      description: Retorna todos os dados do veículo para o backoffice (inclui custos e margens de acordo com a Role).
+      operationId: getVehicleByIdAdmin
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Detalhes completos do veículo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles/{id}:
+    get:
+      tags:
+        - Veículos
+      summary: Detalhes Públicos do Veículo + Métrica Anti-Fraude (RN007)
+      description: >
+        Visualização de detalhes de um veículo para o consumidor final.
+        Incrementa a métrica de visualizações (`total_views`) com mecanismo de proteção anti-fraude por IP/User-Agent.
+      operationId: getVehicleByIdPublic
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Dados públicos do veículo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  item:
+                    $ref: '#/components/schemas/VehiclePublic'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Veículos
+      summary: Atualizar Veículo
+      description: Atualiza os dados cadastrais ou opcionais de um veículo. Restrito a ADMIN e VENDEDOR. Pelo menos um campo deve ser informado.
+      operationId: updateVehicle
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateVehicleBody'
+            example:
+              sale_price: 108000
+              mileage: 27000
+              status: "RESERVADO"
+      responses:
+        '200':
+          description: Veículo atualizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleSingleResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Placa já cadastrada para outro veículo ativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Veículos
+      summary: Excluir Veículo (Soft Delete)
+      description: Exclusão lógica de veículo no estoque. Restrito exclusivamente ao perfil ADMIN.
+      operationId: deleteVehicle
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Veículo excluído com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleSingleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Autenticação via JSON Web Token (formato `Bearer <token>`).
+
+  parameters:
+    PathId:
+      name: id
+      in: path
+      required: true
+      description: Identificador único em formato UUID v4
+      schema:
+        type: string
+        format: uuid
+      example: "70a6d0b9-5095-46b5-a6a3-a7d0dbba3e5f"
+
+    PageQuery:
+      name: page
+      in: query
+      required: false
+      description: Número da página consultada (mínimo 1)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    LimitQuery:
+      name: limit
+      in: query
+      required: false
+      description: Quantidade máxima de registros retornados (mínimo 1)
+      schema:
+        type: integer
+        minimum: 1
+        default: 10
+
+    IsActiveQuery:
+      name: is_active
+      in: query
+      required: false
+      description: Filtrar por registros ativos ("true") ou inativos ("false")
+      schema:
+        type: string
+        enum: ["true", "false"]
+
+    IncludeDeletedQuery:
+      name: include_deleted
+      in: query
+      required: false
+      description: Incluir registros com soft delete (exclusivo para perfil ADMIN)
+      schema:
+        type: string
+        enum: ["true", "false"]
+
+    CreatedAtGteQuery:
+      name: created_at_gte
+      in: query
+      required: false
+      description: Data de criação maior ou igual a (formato ISO YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+
+    CreatedAtLteQuery:
+      name: created_at_lte
+      in: query
+      required: false
+      description: Data de criação menor ou igual a (formato ISO YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+
+    UpdatedAtGteQuery:
+      name: updated_at_gte
+      in: query
+      required: false
+      description: Data de atualização maior ou igual a (formato ISO YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+
+    UpdatedAtLteQuery:
+      name: updated_at_lte
+      in: query
+      required: false
+      description: Data de atualização menor ou igual a (formato ISO YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+
+  responses:
+    Unauthorized:
+      description: Não autorizado - Token não fornecido, inválido ou expirado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            message: "Acesso negado. Token não fornecido ou inválido"
+
+    Forbidden:
+      description: Acesso proibido - Permissão insuficiente
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            message: "Acesso proibido. Permissão insuficiente."
+
+    NotFound:
+      description: Registro não encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            message: "Registro não encontrado"
+
+    ValidationError:
+      description: Falha de validação de schema Zod nos parâmetros ou corpo da requisição
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Descrição do erro
+      example:
+        message: "Registro não encontrado"
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - status
+        - errors
+      properties:
+        status:
+          type: string
+          example: "fail"
+        errors:
+          type: array
+          items:
+            type: object
+            required:
+              - field
+              - message
+            properties:
+              field:
+                type: string
+                description: Caminho do campo inválido
+                example: "body.email"
+              message:
+                type: string
+                description: Detalhes da validação não atendida
+                example: "Formato de e-mail inválido"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - uptime
+      properties:
+        status:
+          type: string
+          example: "ok"
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: number
+          example: 452.12
+
+    UserRole:
+      type: string
+      enum:
+        - ADMIN
+        - VENDEDOR
+        - VISUALIZADOR
+        - PUBLICO
+
+    LoginUserInput:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: E-mail cadastrado do usuário
+        password:
+          type: string
+          minLength: 1
+          description: Senha em texto plano
+
+    LoginResponse:
+      type: object
+      required:
+        - message
+        - userInfo
+      properties:
+        message:
+          type: string
+          example: "Login realizado com sucesso!"
+        userInfo:
+          type: object
+          required:
+            - token
+            - user
+          properties:
+            token:
+              type: string
+              description: Token JWT para autenticação
+            user:
+              $ref: '#/components/schemas/User'
+
+    CreateUserInput:
+      type: object
+      required:
+        - name
+        - email
+        - password
+        - phone
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          description: Senha com pelo menos 8 dígitos, maiúscula, minúscula, número e caractere especial
+        phone:
+          type: string
+          pattern: '^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$'
+          description: Telefone celular no padrão brasileiro
+        role:
+          $ref: '#/components/schemas/UserRole'
+          default: PUBLICO
+        commission_rates:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Taxa de comissão percentual do usuário
+
+    UpdateUserBody:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+        phone:
+          type: string
+          pattern: '^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$'
+        role:
+          $ref: '#/components/schemas/UserRole'
+        commission_rates:
+          type: number
+          minimum: 0
+          maximum: 100
+
+    User:
+      type: object
+      required:
+        - id
+        - name
+        - email
+        - phone
+        - role
+        - is_active
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        commission_rates:
+          type: number
+          nullable: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    UserCreatedResponse:
+      type: object
+      required:
+        - message
+        - user
+      properties:
+        message:
+          type: string
+          example: "Usuário criado com sucesso!"
+        user:
+          $ref: '#/components/schemas/User'
+
+    UserSingleResponse:
+      type: object
+      required:
+        - userInfo
+      properties:
+        userInfo:
+          $ref: '#/components/schemas/User'
+
+    UserListResponse:
+      type: object
+      required:
+        - users
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+
+    Store:
+      type: object
+      required:
+        - id
+        - name
+        - phone
+        - cnpj
+        - zip_code
+        - street
+        - number
+        - neighborhood
+        - city
+        - state
+        - is_active
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        phone:
+          type: string
+        cnpj:
+          type: string
+        zip_code:
+          type: string
+        street:
+          type: string
+        number:
+          type: string
+        neighborhood:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        complement:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateStoreInput:
+      type: object
+      required:
+        - name
+        - phone
+        - cnpj
+        - zip_code
+        - street
+        - number
+        - neighborhood
+        - city
+        - state
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+        phone:
+          type: string
+          pattern: '^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$'
+        cnpj:
+          type: string
+          description: CNPJ com 14 dígitos numéricos
+        zip_code:
+          type: string
+          description: CEP com 8 dígitos numéricos
+        street:
+          type: string
+          minLength: 2
+          maxLength: 255
+        number:
+          type: string
+          minLength: 1
+          maxLength: 20
+        neighborhood:
+          type: string
+          minLength: 2
+          maxLength: 100
+        city:
+          type: string
+          minLength: 2
+          maxLength: 100
+        state:
+          type: string
+          minLength: 2
+          maxLength: 2
+          description: Sigla da UF com 2 caracteres em maiúsculas
+        complement:
+          type: string
+          maxLength: 100
+
+    UpdateStoreBody:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        cnpj:
+          type: string
+        zip_code:
+          type: string
+        street:
+          type: string
+        number:
+          type: string
+        neighborhood:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        complement:
+          type: string
+
+    StoreSingleResponse:
+      type: object
+      required:
+        - item
+      properties:
+        item:
+          $ref: '#/components/schemas/Store'
+
+    StoreListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Store'
+
+    Brand:
+      type: object
+      required:
+        - id
+        - name
+        - is_active
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateBrandInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+
+    UpdateBrandBody:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+
+    BrandSingleResponse:
+      type: object
+      required:
+        - item
+      properties:
+        item:
+          $ref: '#/components/schemas/Brand'
+
+    BrandListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Brand'
+
+    Feature:
+      type: object
+      required:
+        - id
+        - name
+        - is_active
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateFeatureInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+
+    UpdateFeatureBody:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+
+    FeatureSingleResponse:
+      type: object
+      required:
+        - item
+      properties:
+        item:
+          $ref: '#/components/schemas/Feature'
+
+    FeatureListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Feature'
+
+    Model:
+      type: object
+      required:
+        - id
+        - brand_id
+        - name
+        - is_active
+      properties:
+        id:
+          type: string
+          format: uuid
+        brand_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateModelInput:
+      type: object
+      required:
+        - brand_id
+        - name
+      properties:
+        brand_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+
+    UpdateModelBody:
+      type: object
+      properties:
+        brand_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 2
+          maxLength: 255
+
+    ModelSingleResponse:
+      type: object
+      required:
+        - item
+      properties:
+        item:
+          $ref: '#/components/schemas/Model'
+
+    ModelListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Model'
+
+    VehicleSaleType:
+      type: string
+      enum:
+        - PROPRIO
+        - CONSIGNADO
+
+    VehicleTransmission:
+      type: string
+      enum:
+        - AUTOMATICO
+        - MANUAL
+        - AUTOMATIZADO
+
+    VehicleCategory:
+      type: string
+      enum:
+        - HATCH
+        - SEDÃ
+        - SUV
+        - PICAPE
+        - CUPE
+        - CONVERSIVEL
+        - PERUA
+        - MINIVAN/VAN
+        - ESPORTIVO
+
+    VehicleFuelType:
+      type: string
+      enum:
+        - GASOLINA
+        - ALCOOL
+        - DIESEL
+        - FLEX
+        - ELETRICO
+        - HIBRIDO
+
+    VehicleStatus:
+      type: string
+      enum:
+        - ATIVO
+        - RESERVADO
+        - EM_NEGOCIACAO
+        - VENDIDO
+        - INATIVO
+
+    CreateVehicleInput:
+      type: object
+      required:
+        - store_id
+        - model_id
+        - title
+        - description
+        - sale_price
+        - manufacture_year
+        - model_year
+        - mileage
+        - transmission
+        - color
+        - category
+        - fuel_type
+        - steering
+        - doors
+        - full_license_plate
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        model_id:
+          type: string
+          format: uuid
+        promotion_id:
+          type: string
+          format: uuid
+          nullable: true
+        sale_type:
+          $ref: '#/components/schemas/VehicleSaleType'
+          default: PROPRIO
+        title:
+          type: string
+          minLength: 3
+          maxLength: 255
+        description:
+          type: string
+          minLength: 5
+        sale_price:
+          type: number
+          exclusiveMinimum: 0
+        purchase_price:
+          type: number
+          nullable: true
+          description: Preço de compra pago pela loja (obrigatório e > 0 se sale_type for PROPRIO)
+        owner_name:
+          type: string
+          nullable: true
+          description: Nome do proprietário (obrigatório se sale_type for CONSIGNADO)
+        owner_contact:
+          type: string
+          nullable: true
+          description: Telefone de contato do proprietário (obrigatório se sale_type for CONSIGNADO)
+        owner_price:
+          type: number
+          nullable: true
+          description: Valor a repassar ao proprietário (obrigatório se sale_type for CONSIGNADO)
+        store_commission_rate:
+          type: number
+          nullable: true
+          description: Taxa de comissão retida pela loja (obrigatório e >= 0 se sale_type for CONSIGNADO)
+        fipe_price:
+          type: number
+          nullable: true
+        min_down_payment:
+          type: number
+          nullable: true
+        max_installments:
+          type: integer
+          nullable: true
+        manufacture_year:
+          type: integer
+          minimum: 1900
+        model_year:
+          type: integer
+          minimum: 1900
+        mileage:
+          type: integer
+          minimum: 0
+        transmission:
+          $ref: '#/components/schemas/VehicleTransmission'
+        color:
+          type: string
+          minLength: 2
+          maxLength: 20
+        category:
+          $ref: '#/components/schemas/VehicleCategory'
+        horsepower:
+          type: integer
+          nullable: true
+        fuel_type:
+          $ref: '#/components/schemas/VehicleFuelType'
+        steering:
+          type: string
+          minLength: 2
+          maxLength: 20
+        doors:
+          type: integer
+          minimum: 1
+          maximum: 10
+        full_license_plate:
+          type: string
+          description: Placa no formato Mercosul (ex. ABC1D23) ou padrão antigo (ex. ABC1234)
+        status:
+          $ref: '#/components/schemas/VehicleStatus'
+          default: ATIVO
+        video_url:
+          type: string
+          maxLength: 255
+          nullable: true
+        inspection_report_url:
+          type: string
+          maxLength: 255
+          nullable: true
+        feature_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    UpdateVehicleBody:
+      type: object
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        model_id:
+          type: string
+          format: uuid
+        promotion_id:
+          type: string
+          format: uuid
+          nullable: true
+        sale_type:
+          $ref: '#/components/schemas/VehicleSaleType'
+        title:
+          type: string
+        description:
+          type: string
+        sale_price:
+          type: number
+        purchase_price:
+          type: number
+          nullable: true
+        owner_name:
+          type: string
+          nullable: true
+        owner_contact:
+          type: string
+          nullable: true
+        owner_price:
+          type: number
+          nullable: true
+        store_commission_rate:
+          type: number
+          nullable: true
+        fipe_price:
+          type: number
+          nullable: true
+        min_down_payment:
+          type: number
+          nullable: true
+        max_installments:
+          type: integer
+          nullable: true
+        manufacture_year:
+          type: integer
+        model_year:
+          type: integer
+        mileage:
+          type: integer
+        transmission:
+          $ref: '#/components/schemas/VehicleTransmission'
+        color:
+          type: string
+        category:
+          $ref: '#/components/schemas/VehicleCategory'
+        horsepower:
+          type: integer
+          nullable: true
+        fuel_type:
+          $ref: '#/components/schemas/VehicleFuelType'
+        steering:
+          type: string
+        doors:
+          type: integer
+        full_license_plate:
+          type: string
+        status:
+          $ref: '#/components/schemas/VehicleStatus'
+        video_url:
+          type: string
+          nullable: true
+        inspection_report_url:
+          type: string
+          nullable: true
+        feature_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    VehiclePublic:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        sale_price:
+          type: number
+        manufacture_year:
+          type: integer
+        model_year:
+          type: integer
+        mileage:
+          type: integer
+        transmission:
+          $ref: '#/components/schemas/VehicleTransmission'
+        color:
+          type: string
+        category:
+          $ref: '#/components/schemas/VehicleCategory'
+        fuel_type:
+          $ref: '#/components/schemas/VehicleFuelType'
+        steering:
+          type: string
+        doors:
+          type: integer
+        plate_last_digit:
+          type: integer
+        status:
+          $ref: '#/components/schemas/VehicleStatus'
+        brand_name:
+          type: string
+        model_name:
+          type: string
+        store_name:
+          type: string
+        total_views:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+
+    VehicleSingleResponse:
+      type: object
+      required:
+        - item
+      properties:
+        item:
+          type: object
+          description: Registro de veículo com campos expostos de acordo com a Role do usuário autenticado
+
+    VehicleCatalogResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - limit
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+        total:
+          type: integer
+          example: 42
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 12

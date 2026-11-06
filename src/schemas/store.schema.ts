@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { baseFindQuerySchema } from './base.schema';
 
 const idValidation = z.string().uuid('ID da loja inválido');
 const nameValidation = z.string().trim().min(2, 'O nome deve conter no mínimo 2 caracteres').max(255);
@@ -35,6 +36,15 @@ export const createStoreSchema = z.object({
 export const updateStoreSchema = z.object({
   params: z.object({ id: idValidation }),
   body: storeBodySchema.partial()
+});
+
+export const findStoreSchema = z.object({
+  query: baseFindQuerySchema.extend({
+    name_like: z.string().optional(),
+    cnpj: cnpjValidation.optional(),
+    city_like: z.string().optional(),
+    state: z.string().min(1).max(2).optional()
+  })
 });
 
 export const findByCnpjStoreSchema = z.object({

@@ -17,15 +17,20 @@ export function buildUpdateQuery(tableName: string, data: Record<string, unknown
   return { query, values: [...values, id] };
 }
 
-export function buildFindQuery(tableName: string, filters: FindData): { query: string; values: unknown[] } {
+export function buildFindQuery(
+  tableName: string,
+  filters: FindData,
+  options?: { softDelete?: boolean }
+): { query: string; values: unknown[] } {
   const { filters: filterArray, includeDeleted } = filters;
 
   let query = `SELECT * FROM ${tableName}`;
   const values: unknown[] = [];
-  const conditions: string[] = ['deleted_at IS NULL'];
+  const conditions: string[] = [];
 
-  if (includeDeleted) {
-    conditions.pop();
+  const useSoftDelete = options?.softDelete !== false;
+  if (useSoftDelete && !includeDeleted) {
+    conditions.push('deleted_at IS NULL');
   }
 
   for (const filter of filterArray) {

@@ -47,7 +47,7 @@ export default class BaseRepository<
   }
 
   async find(filters: FindData): Promise<T[]> {
-    const { query, values } = buildFindQuery(this.tableName, filters);
+    const { query, values } = buildFindQuery(this.tableName, filters, this.options);
 
     const result = await pool.query<T>(query, values);
 

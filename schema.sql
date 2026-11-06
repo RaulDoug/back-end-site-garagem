@@ -156,30 +156,6 @@ CREATE TYPE lead_preferred_shift_type AS ENUM ('MANHA', 'TARDE', 'NOITE');
 CREATE TYPE lead_status_type AS ENUM ('PENDENTE', 'EM_ATENDIMENTO', 'CONVERTIDO', 'ARQUIVADO');
 
 -------------------------------------------------
--- Tabela de lead interessado (lead_interests) - quer models
--------------------------------------------------
-
-CREATE TABLE lead_interests (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  customer_name VARCHAR(255) NOT NULL,
-  customer_phone VARCHAR(255) NOT NULL,
-  preferred_channel lead_preferred_channel_type DEFAULT 'WHATSAPP',
-  preferred_shift lead_preferred_shift_type DEFAULT 'TARDE',
-  vehicle_id UUID,
-  brand_id UUID,
-  model_id UUID,
-  min_year INTEGER,
-  max_year INTEGER,
-  max_price DECIMAL(10, 2),
-  status lead_status_type DEFAULT 'PENDENTE',
-  notes TEXT,
-  created_at TIMESTAMP DEFAULT now(),
-  CONSTRAINT fk_vehicle_lead_interest FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
-  CONSTRAINT fk_brand_lead_interest FOREIGN KEY (brand_id) REFERENCES brands(id),
-  CONSTRAINT fk_model_lead_interest FOREIGN KEY (model_id) REFERENCES models(id)
-);
-
--------------------------------------------------
 -- Enum de tipo de venda para tabela vehicle 
 -------------------------------------------------
 CREATE TYPE vehicle_sale_types AS ENUM ('PROPRIO', 'CONSIGNADO');
@@ -219,8 +195,8 @@ CREATE TABLE vehicles (
   title VARCHAR(255) NOT NULL,
   description TEXT NOT NULL,
   sale_price DECIMAL(10, 2) NOT NULL,
-  purchase_price DECIMAL(10, 2) NOT NULL,
-  owner_price DECIMAL(10, 2) NOT NULL,
+  purchase_price DECIMAL(10, 2) DEFAULT NULL,
+  owner_price DECIMAL(10, 2) DEFAULT NULL,
   store_commission_rate DECIMAL(5, 2),
   owner_name VARCHAR(255),
   owner_contact VARCHAR(15),
@@ -303,6 +279,30 @@ CREATE TABLE trade_in_proposals (
 );
 
 -------------------------------------------------
+-- Tabela de lead interessado (lead_interests)
+-------------------------------------------------
+
+CREATE TABLE lead_interests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_name VARCHAR(255) NOT NULL,
+  customer_phone VARCHAR(255) NOT NULL,
+  preferred_channel lead_preferred_channel_type DEFAULT 'WHATSAPP',
+  preferred_shift lead_preferred_shift_type DEFAULT 'TARDE',
+  vehicle_id UUID,
+  brand_id UUID,
+  model_id UUID,
+  min_year INTEGER,
+  max_year INTEGER,
+  max_price DECIMAL(10, 2),
+  status lead_status_type DEFAULT 'PENDENTE',
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT now(),
+  CONSTRAINT fk_vehicle_lead_interest FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
+  CONSTRAINT fk_brand_lead_interest FOREIGN KEY (brand_id) REFERENCES brands(id),
+  CONSTRAINT fk_model_lead_interest FOREIGN KEY (model_id) REFERENCES models(id)
+);
+
+-------------------------------------------------
 -- Tabela de métricas do veículo (vehicle_metrics)
 -------------------------------------------------
 
@@ -312,7 +312,8 @@ CREATE TABLE vehicle_metrics (
   recorded_date DATE DEFAULT now(),
   views_count INTEGER DEFAULT 0,
   whatsapp_clicks_count INTEGER DEFAULT 0,
-  CONSTRAINT fk_vehicle_vehicle_metrics FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
+  CONSTRAINT fk_vehicle_vehicle_metrics FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
+  CONSTRAINT uq_vehicle_metrics_date UNIQUE (vehicle_id, recorded_date)
 );
 
 -------------------------------------------------
