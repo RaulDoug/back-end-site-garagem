@@ -1,5 +1,5 @@
-import pool from '../config/database';
-import BaseRepository from './base.repository';
+import pool from '#src/config/database.js';
+import BaseRepository from '#repositories/base.repository.js';
 
 export interface User {
   id: string;
@@ -48,7 +48,7 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
       data.password_hash,
       data.phone,
       data.role || null,
-      data.commission_rates || 0,
+      data.commission_rates ?? null,
     ];
 
     const result = await pool.query<User>(query, values);

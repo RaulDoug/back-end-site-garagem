@@ -158,6 +158,7 @@ describe('VehicleService e Utilitários', () => {
     });
 
     it('deve recalcular plate_last_digit ao atualizar full_license_plate no update', async () => {
+      vi.mocked(vehicleRepository.findById).mockResolvedValue(mockVehicle);
       vi.mocked(vehicleRepository.updateWithFeatures).mockResolvedValue(mockVehicle);
 
       await vehicleService.update(mockVehicle.id, { full_license_plate: 'XYZ9K45' }, ['feat-2']);
@@ -169,6 +170,34 @@ describe('VehicleService e Utilitários', () => {
           plate_last_digit: 5,
         }),
         ['feat-2']
+      );
+    });
+
+    it('deve lançar BadRequestError no update ao mudar para CONSIGNADO sem dados do proprietário', async () => {
+      vi.mocked(vehicleRepository.findById).mockResolvedValue(mockVehicle);
+
+      await expect(
+        vehicleService.update(mockVehicle.id, { sale_type: 'CONSIGNADO' })
+      ).rejects.toThrow(BadRequestError);
+
+      expect(vehicleRepository.updateWithFeatures).not.toHaveBeenCalled();
+    });
+
+    it('deve ignorar include_deleted=true na busca pública (findPublic)', async () => {
+      vi.mocked(vehicleRepository.findCatalog).mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 12,
+      });
+
+      await vehicleService.findPublic({ include_deleted: 'true' });
+
+      expect(vehicleRepository.findCatalog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicOnly: true,
+          include_deleted: false,
+        })
       );
     });
   });

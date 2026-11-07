@@ -22,9 +22,9 @@ export const authenticateJWT = async (req: Request, res: Response, next: NextFun
     }
 
     req.user = {
-      id: payload.id,
-      email: payload.email,
-      role: payload.role,
+      id: user.id,
+      email: user.email ?? payload.email,
+      role: user.role ?? payload.role,
     };
 
     next();

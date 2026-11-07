@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseFindQuerySchema } from './base.schema';
+import { baseFindQuerySchema } from '#schemas/base.schema.js';
 
 const idValidation = z.string().uuid('ID da marca inválido');
 const nameValidation = z.string()

@@ -150,6 +150,34 @@ describe('authenticateJWT', () => {
     });
     expect(next).not.toHaveBeenCalled();
   });
+
+  it('deve priorizar role e email atuais do banco sobre o payload antigo do token', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'antigo@garagem.com',
+      role: 'ADMIN',
+    };
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindById.mockResolvedValue({
+      id: payload.id,
+      email: 'novo@garagem.com',
+      role: 'VISUALIZADOR',
+      deleted_at: null,
+      is_active: true,
+    } as never);
+
+    await authenticateJWT(req, res, next);
+
+    expect(req.user).toEqual({
+      id: payload.id,
+      email: 'novo@garagem.com',
+      role: 'VISUALIZADOR',
+    });
+    expect(next).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('authorizeRoles', () => {

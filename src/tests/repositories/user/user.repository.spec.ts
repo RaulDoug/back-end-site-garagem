@@ -112,6 +112,7 @@ describe('UserRepository - integração com PostgreSQL', () => {
     expect(user.role).toBe('VENDEDOR');
     expect(user.is_active).toBe(true);
     expect(user.deleted_at).toBeNull();
+    expect(user.commission_rates).toBeNull();
   });
 
   it('deve atualizar dinamicamente apenas os campos informados', async () => {

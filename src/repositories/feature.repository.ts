@@ -1,4 +1,4 @@
-import BaseRepository from './base.repository';
+import BaseRepository from '#repositories/base.repository.js';
 
 export interface Feature {
   id: string;

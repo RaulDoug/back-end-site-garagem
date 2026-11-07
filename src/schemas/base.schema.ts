@@ -8,8 +8,6 @@ export const baseFindQuerySchema = z.object({
   is_active: deleteActiveEnumValidate,
   created_at_gte: dateValidation,
   created_at_lte: dateValidation,
-  updated_at_gte: dateValidation,
-  updated_at_lte: dateValidation,
   page: z.coerce.number().min(1, 'A paginação não pode ser menor que 1').optional(),
   limit: z.coerce.number().min(1, 'O limte da consulta não pode ser menor que 1').optional()
 });

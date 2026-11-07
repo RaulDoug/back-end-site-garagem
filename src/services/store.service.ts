@@ -1,6 +1,6 @@
 import { CreateStoreData, Store, StoreRepository } from '#repositories/store.repository.js';
 import { AppError, NotFoundError } from '#src/errors/app.error.js';
-import BaseService from './base.service';
+import BaseService from '#services/base.service.js';
 
 export default class StoreService extends BaseService<Store, CreateStoreData> {
   constructor(protected override repository = new StoreRepository()) {

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import BaseController from './base.controller';
+import BaseController from '#controllers/base.controller.js';
 import VehicleService from '#services/vehicle.service.js';
 import { type Vehicle, type CreateVehicleData } from '#repositories/vehicle.repository.js';
 

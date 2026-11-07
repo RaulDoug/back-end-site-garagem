@@ -13,5 +13,17 @@ export default function errorHandler(error: Error, req: Request, res: Response, 
     return res.status(400).json({ message: error.message });
   }
 
+  const pgCode = (error as { code?: string }).code;
+
+  if (pgCode === '23505') {
+    return res.status(409).json({ message: 'Registro duplicado ou já existente.' });
+  }
+
+  if (pgCode === '23503') {
+    return res.status(409).json({
+      message: 'Operação não permitida: registro vinculado a outros dados.',
+    });
+  }
+
   return res.status(500).json({ message: 'Erro interno do servidor' });
 }

@@ -1,4 +1,4 @@
-import BaseRepository from './base.repository';
+import BaseRepository from '#repositories/base.repository.js';
 import pool from '#src/config/database.js';
 import { buildInsertQuery, buildUpdateQuery } from '#utils/query.util.js';
 
@@ -205,7 +205,10 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
         const res = await client.query<Vehicle>(query, values);
         updatedVehicle = res.rows[0] || null;
       } else {
-        const res = await client.query<Vehicle>('SELECT * FROM vehicles WHERE id = $1', [id]);
+        const res = await client.query<Vehicle>(
+          'SELECT * FROM vehicles WHERE id = $1 AND deleted_at IS NULL',
+          [id]
+        );
         updatedVehicle = res.rows[0] || null;
       }
 

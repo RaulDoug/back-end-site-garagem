@@ -150,4 +150,18 @@ describe('UserService.login', () => {
 
     expect(bcrypt.compare).toHaveBeenCalledTimes(1);
   });
+
+  it('deve lançar erro 401 quando o usuário estiver inativo (is_active = false)', async () => {
+    mockUserRepository.findByEmail.mockResolvedValue(buildUser({ is_active: false }));
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+
+    await expect(
+      userService.login({
+        email: USER_EMAIL,
+        password: USER_PASSWORD,
+      })
+    ).rejects.toThrow('Credenciais inválidas');
+
+    expect(jwt.sign).not.toHaveBeenCalled();
+  });
 });

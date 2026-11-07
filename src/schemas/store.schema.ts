@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseFindQuerySchema } from './base.schema';
+import { baseFindQuerySchema } from '#schemas/base.schema.js';
 
 const idValidation = z.string().uuid('ID da loja inválido');
 const nameValidation = z.string().trim().min(2, 'O nome deve conter no mínimo 2 caracteres').max(255);

@@ -1,5 +1,5 @@
-import pool from '../config/database';
-import BaseRepository from './base.repository';
+import pool from '#src/config/database.js';
+import BaseRepository from '#repositories/base.repository.js';
 
 export interface Store {
     id: string;

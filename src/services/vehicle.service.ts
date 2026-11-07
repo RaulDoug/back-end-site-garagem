@@ -1,4 +1,4 @@
-import BaseService from './base.service';
+import BaseService from '#services/base.service.js';
 import {
   VehicleRepository,
   type Vehicle,
@@ -65,6 +65,41 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
       }
       const lastDigit = Number(cleanData.full_license_plate.slice(-1));
       cleanData.plate_last_digit = isNaN(lastDigit) ? 0 : lastDigit;
+    }
+
+    const currentVehicle = await this.repository.findById(id);
+    if (!currentVehicle) {
+      throw new NotFoundError('Veículo não encontrado');
+    }
+
+    const merged = { ...currentVehicle, ...cleanData };
+    if (merged.sale_type === 'PROPRIO') {
+      if (
+        merged.purchase_price === undefined ||
+        merged.purchase_price === null ||
+        Number(merged.purchase_price) <= 0
+      ) {
+        throw new BadRequestError(
+          'Preço de compra é obrigatório e deve ser maior que zero para veículos próprios'
+        );
+      }
+    } else if (merged.sale_type === 'CONSIGNADO') {
+      if (
+        !merged.owner_name ||
+        merged.owner_name.trim().length < 2 ||
+        !merged.owner_contact ||
+        merged.owner_contact.trim().length < 8 ||
+        merged.owner_price === undefined ||
+        merged.owner_price === null ||
+        Number(merged.owner_price) <= 0 ||
+        merged.store_commission_rate === undefined ||
+        merged.store_commission_rate === null ||
+        Number(merged.store_commission_rate) < 0
+      ) {
+        throw new BadRequestError(
+          'Dados do proprietário, valor líquido e comissão são obrigatórios para veículos consignados'
+        );
+      }
     }
 
     const updated = await this.repository.updateWithFeatures(id, cleanData, featureIds);
@@ -175,7 +210,7 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
       feature_ids: featureIds,
       status: query.status as string | undefined,
       search: query.search as string | undefined,
-      include_deleted: query.include_deleted === 'true',
+      include_deleted: publicOnly ? false : query.include_deleted === 'true',
       publicOnly,
     };
   }

@@ -1,5 +1,5 @@
 import { buildFindQuery, buildInsertQuery, buildUpdateQuery } from '#utils/query.util.js';
-import pool from '../config/database';
+import pool from '#src/config/database.js';
 import { QueryResultRow } from 'pg';
 
 interface RepositoryOptions {
@@ -66,7 +66,7 @@ export default class BaseRepository<
     const keys = Object.keys(data);
     if (keys.length === 0) return null;
 
-    const { query, values } = buildUpdateQuery(this.tableName, data as Record<string, unknown>, id);
+    const { query, values } = buildUpdateQuery(this.tableName, data as Record<string, unknown>, id, this.options);
 
     const result = await pool.query<T>(query, values);
 

@@ -3,7 +3,7 @@ import { User, UserRepository } from '#repositories/user.repository.js';
 import { CreateUserInput, LoginUserInput, UpdateUserBody } from '#schemas/user.schema.js';
 import { AppError, BadRequestError, NotFoundError } from '#src/errors/app.error.js';
 import { generateToken } from '#utils/jwt.util.js';
-import { comparePassword, hashPassword } from '../utils/hash.util';
+import { comparePassword, hashPassword } from '#utils/hash.util.js';
 
 export default class UserService {
   constructor(private userRepository = new UserRepository()) {};
@@ -39,11 +39,15 @@ export default class UserService {
 
     const user = await this.userRepository.findByEmail(email);
 
-    const isMatch = user ? await comparePassword(password, user.password_hash) : false;
-
-    if (user === null || isMatch === false) {
+    if (user === null || !user.is_active) {
       throw new AppError('Credenciais inválidas', 401);
-    };
+    }
+
+    const isMatch = await comparePassword(password, user.password_hash);
+
+    if (isMatch === false) {
+      throw new AppError('Credenciais inválidas', 401);
+    }
 
     const payload = {
       id: user.id,

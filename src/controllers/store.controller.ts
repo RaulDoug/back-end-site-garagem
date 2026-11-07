@@ -1,7 +1,7 @@
 import { CreateStoreData, Store } from '#repositories/store.repository.js';
 import StoreService from '#services/store.service.js';
 import { Request, Response } from 'express';
-import BaseController from './base.controller';
+import BaseController from '#controllers/base.controller.js';
 
 export default class StoreController extends BaseController<Store, CreateStoreData> {
   constructor(protected override service = new StoreService()) {

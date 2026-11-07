@@ -273,6 +273,25 @@ describe('VehicleRepository - integração com PostgreSQL', () => {
       );
       expect(vfRows.rows.map((r) => r.feature_id)).toEqual([feat3.id]);
     });
+
+    it('deve retornar null ao tentar atualizar um veículo já deletado (soft delete)', async () => {
+      const store = await createHelperStore();
+      const { model } = await createHelperBrandAndModel();
+
+      const vehicle = await vehicleRepository.createWithFeatures(
+        makeVehicleData(store.id, model.id),
+        []
+      );
+      createdVehicleIds.add(vehicle.id);
+
+      await vehicleRepository.delete(vehicle.id);
+
+      const updated = await vehicleRepository.updateWithFeatures(
+        vehicle.id,
+        { sale_price: 85000 }
+      );
+      expect(updated).toBeNull();
+    });
   });
 
   describe('findCatalog com regras RN001 (Flex) e RN002 (Visibilidade)', () => {

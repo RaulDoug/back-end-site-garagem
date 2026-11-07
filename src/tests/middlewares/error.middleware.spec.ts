@@ -81,5 +81,31 @@ describe('error.middleware', () => {
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith({ message: 'Erro interno do servidor' });
   });
+
+  it('deve responder com status 409 quando ocorrer erro 23505 (violação de unicidade do PostgreSQL)', () => {
+    const pgError = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+    });
+
+    errorHandler(pgError, req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Registro duplicado ou já existente.',
+    });
+  });
+
+  it('deve responder com status 409 quando ocorrer erro 23503 (violação de chave estrangeira do PostgreSQL)', () => {
+    const pgError = Object.assign(new Error('update or delete on table violates foreign key constraint'), {
+      code: '23503',
+    });
+
+    errorHandler(pgError, req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Operação não permitida: registro vinculado a outros dados.',
+    });
+  });
 });
 
