@@ -244,8 +244,33 @@ export const compareVehiclesSchema = z.object({
   }),
 });
 
+export const reorderPhotosSchema = z.object({
+  params: z.object({
+    id: idValidation,
+  }),
+  body: z.object({
+    photo_ids: z
+      .array(z.string().uuid('ID de foto inválido'))
+      .min(1, 'Informe ao menos um ID de foto')
+      .refine(
+        (ids) => new Set(ids).size === ids.length,
+        'A lista de fotos não pode conter IDs duplicados'
+      ),
+  }),
+});
+
+export const deletePhotoSchema = z.object({
+  params: z.object({
+    id: idValidation,
+    photoId: z.string().uuid('ID da foto inválido'),
+  }),
+});
+
 export type CreateVehicleInput = z.infer<typeof createVehicleSchema>['body'];
 export type UpdateVehicleParams = z.infer<typeof updateVehicleSchema>['params'];
 export type UpdateVehicleBody = z.infer<typeof updateVehicleSchema>['body'];
 export type FindVehicleQuery = z.infer<typeof findVehicleSchema>['query'];
 export type CompareVehiclesQuery = z.infer<typeof compareVehiclesSchema>['query'];
+export type ReorderPhotosParams = z.infer<typeof reorderPhotosSchema>['params'];
+export type ReorderPhotosBody = z.infer<typeof reorderPhotosSchema>['body'];
+export type DeletePhotoParams = z.infer<typeof deletePhotoSchema>['params'];

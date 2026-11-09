@@ -147,10 +147,11 @@ Classes abstratas/genéricas parametrizadas com Generics TypeScript (`T extends 
 #### `update(id: string, data: Partial<C>): Promise<T | null>`
 - **Operação Principal:** `UPDATE`
 - **Tabela(s) Afetada(s):** `${this.tableName}`.
-- **Parâmetros SQL:** Gerados dinamicamente via `buildUpdateQuery`:
-  - `UPDATE tableName SET col1 = $1, col2 = $2 WHERE id = $n RETURNING *;`.
+- **Parâmetros SQL:** Gerados dinamicamente via `buildUpdateQuery(tableName, data, id, this.options)`:
+  - Se `options.softDelete = true`: `UPDATE tableName SET col1 = $1, col2 = $2 WHERE id = $n AND deleted_at IS NULL RETURNING *;`.
+  - Se `options.softDelete = false`: `UPDATE tableName SET col1 = $1, col2 = $2 WHERE id = $n RETURNING *;`.
   - `$n` é a última posição do array, recebendo o `id`.
-- **Comportamento da Query:** Altera os campos informados e retorna a entidade atualizada. Retorna `null` se não houver campos no payload.
+- **Comportamento da Query:** Altera os campos informados e retorna a entidade atualizada. Impede a atualização de registros deletados logicamente. Retorna `null` se não houver campos no payload ou se o registro não for localizado/estiver inativo.
 - **Retorno TypeScript:** `T | null` (`result.rows[0] || null`).
 
 #### `delete(id: string): Promise<T | null>`
@@ -216,14 +217,16 @@ Gerencia regras de credenciamento, criptografia de senhas (bcrypt), emissão de 
 
 - **Regras de Negócio & Fluxos:**
   1. Busca o usuário por e-mail com `userRepository.findByEmail(email)`.
-  2. Compara a senha informada com `user.password_hash` via `comparePassword`.
-  3. Se o usuário não existir ou a senha não bater, aborta (tempo constante para mitigar timing attacks).
-  4. Gera o token JWT assinado contendo `{ id, email, role }` no payload.
-  5. Retorna o token e os dados públicos do usuário (sem hash).
+  2. Valida se o usuário existe e se está ativo (`is_active = true`). Se `user === null` ou `!user.is_active`, dispara imediatamente erro de credenciais inválidas.
+  3. Compara a senha informada com `user.password_hash` via `comparePassword`.
+  4. Se a senha não bater, aborta com erro 401.
+  5. Gera o token JWT assinado contendo `{ id, email, role }` no payload.
+  6. Retorna o token e os dados públicos do usuário (sem hash).
 - **Exceções Disparadas (`AppError`):**
-  - `401 Unauthorized` - `AppError ('Credenciais inválidas', 401)`: Se usuário for `null` ou `isMatch === false`.
+  - `401 Unauthorized` - `AppError ('Credenciais inválidas', 401)`: Se usuário for `null`, inativo (`!user.is_active`) ou `isMatch === false`.
 - **Cenários Testados (Vitest):**
   - Autenticação com sucesso retornando token JWT e usuário sem `password_hash`.
+  - Rejeição com erro 401 para usuário inativo (`is_active = false`).
   - Rejeição com erro 401 para senha incorreta.
   - Rejeição com erro 401 para e-mail não existente.
 - **Chamadas de Persistência:** `userRepository.findByEmail(email)`
@@ -280,7 +283,7 @@ Gerencia regras de credenciamento, criptografia de senhas (bcrypt), emissão de 
   - `$3`: `data.password_hash` (`string`)
   - `$4`: `data.phone` (`string`)
   - `$5`: `data.role || null` (cast com `COALESCE($5, 'VENDEDOR')::users_roles_types`)
-  - `$6`: `data.commission_rates || 0` (`number`)
+  - `$6`: `data.commission_rates ?? null` (`number | null` - grava `null` quando omitido)
 - **Comportamento da Query:**
   ```sql
   INSERT INTO users (name, email, password_hash, phone, role, commission_rates)
@@ -472,27 +475,36 @@ Módulo crítico do sistema: orquestração de estoque, transações ACID com ta
   - `repository.createWithFeatures(payload, featureIds)`
 
 #### `update(id: string, data: Partial<CreateVehicleData> & { feature_ids?: string[] }, featureIdsOverride?: string[]): Promise<Vehicle>`
-- **Responsabilidade:** Atualiza os dados do veículo e sincroniza a lista de opcionais.
+- **Responsabilidade:** Atualiza os dados do veículo e sincroniza a lista de opcionais, validando integridade de regras de negócio para venda própria e consignada.
 - **Regras de Negócio & Fluxos:**
   1. Valida se há ao menos um atributo ou array de `feature_ids` informado.
   2. Se a placa for alterada, valida duplicidade garantindo que não pertença a outro veículo (`existing.id !== id`).
   3. Recalcula `plate_last_digit` caso a placa tenha sido modificada.
-  4. Executa atualização atômica via `repository.updateWithFeatures`.
+  4. Recupera o veículo atual com `findById(id)` (dispara `404 Not Found` caso não exista).
+  5. Mescla os dados atuais com os dados atualizados (`merged = { ...currentVehicle, ...cleanData }`) e valida as regras de negócio:
+     - **Veículo Próprio (`sale_type === 'PROPRIO'`):** `purchase_price` é obrigatório e deve ser maior que zero (`> 0`).
+     - **Veículo Consignado (`sale_type === 'CONSIGNADO'`):** `owner_name` (min 2 chars), `owner_contact` (min 8 chars), `owner_price` (`> 0`) e `store_commission_rate` (`>= 0`) são estritamente obrigatórios.
+  6. Executa atualização atômica via `repository.updateWithFeatures`.
 - **Exceções Disparadas (`AppError`):**
   - `400 Bad Request` - `BadRequestError ('Nenhum dado informado para atualização')`.
+  - `400 Bad Request` - `BadRequestError ('Preço de compra é obrigatório e deve ser maior que zero para veículos próprios')`.
+  - `400 Bad Request` - `BadRequestError ('Dados do proprietário, valor líquido e comissão são obrigatórios para veículos consignados')`.
   - `409 Conflict` - `AppError ('Placa já cadastrada para outro veículo ativo', 409)`.
   - `404 Not Found` - `NotFoundError ('Veículo não encontrado')`.
 - **Cenários Testados (Vitest):**
   - Recálculo de final de placa ao atualizar `full_license_plate`.
   - Substituição da lista de opcionais mantendo consistência.
+  - Bloqueio com erro 400 se `purchase_price` for omitido/inválido ao manter ou alterar para `PROPRIO`.
+  - Bloqueio com erro 400 se dados de proprietário/comissão forem omitidos/inválidos em `CONSIGNADO`.
 - **Chamadas de Persistência:**
+  - `repository.findById(id)`
   - `repository.findByPlate(plate)`
   - `repository.updateWithFeatures(id, cleanData, featureIds)`
 
 #### `findPublic(query: Record<string, unknown>): Promise<{ items: Record<string, unknown>[]; total: number; page: number; limit: number }>`
-- **Responsabilidade:** Vitrine pública. Aplica sanitização de proteção de dados (LGPD) em cada item retornado.
+- **Responsabilidade:** Vitrine pública. Aplica sanitização de proteção de dados (LGPD) em cada item retornado e impede visualização de registros deletados.
 - **Regras de Negócio & Fluxos:**
-  1. Força a flag `publicOnly = true` (restringe a status ATIVO e RESERVADO).
+  1. Força as flags `publicOnly = true` e `include_deleted = false` (restringe a status ATIVO e RESERVADO, ignorando qualquer tentativa externa de consultar excluídos).
   2. Executa busca paginada com `repository.findCatalog`.
   3. Mapeia todos os resultados através de `sanitizeVehicleForRole(item, 'PUBLICO')`, removendo custos de compra, placa integral e dados de proprietário.
 - **Chamadas de Persistência:** `repository.findCatalog(filters)`
@@ -559,10 +571,14 @@ Módulo crítico do sistema: orquestração de estoque, transações ACID com ta
 - **Operação Principal:** **Transação ACID Manual (`BEGIN` / `COMMIT` / `ROLLBACK`)**
 - **Tabela(s) Afetada(s):** `vehicles`, `vehicle_features`.
 - **Parâmetros SQL:**
-  - Atualização do veículo com `updated_at = NOW()`.
+  - Atualização do veículo com `buildUpdateQuery` (respeitando soft-delete).
+  - Caso nenhum dado cadastral seja enviado (apenas `featureIds`), busca o veículo garantindo que não esteja deletado:
+    ```sql
+    SELECT * FROM vehicles WHERE id = $1 AND deleted_at IS NULL;
+    ```
   - Limpeza de opcionais: `DELETE FROM vehicle_features WHERE vehicle_id = $1`.
   - Reinserção atômica de opcionais em loop.
-- **Comportamento da Query:** Garante sincronização consistente entre os dados do veículo e sua lista de opcionais associados.
+- **Comportamento da Query:** Garante sincronização consistente entre os dados do veículo e sua lista de opcionais associados, impedindo modificações em veículos com soft delete.
 - **Retorno TypeScript:** `Vehicle | null`.
 
 #### `findCatalog(filters: FindCatalogFilters): Promise<{ items: ...; total: number; page: number; limit: number }>`
@@ -657,3 +673,46 @@ Módulo crítico do sistema: orquestração de estoque, transações ACID com ta
   RETURNING *;
   ```
 - **Retorno TypeScript:** `Vehicle | null`.
+
+---
+
+# Módulo de Mídias e Galeria (`VehicleMedia`)
+
+## 1. `VehicleMediaService`
+- **Arquivo:** `src/services/vehicle-media.service.ts`
+- **Responsabilidade:** Orquestra upload, conversão em WebP (Sharp), exclusão física, reordenação da galeria de fotos e gestão do laudo pericial (PDF).
+
+### Métodos:
+- `uploadPhotos(vehicleId: string, files: Express.Multer.File[]): Promise<VehiclePhoto[]>`:
+  - Valida existência do veículo (404).
+  - Garante recebimento de arquivos (400).
+  - Converte em WebP q80 (400x300 thumb cover, 1280x960 full inside).
+  - Se veículo possui 0 fotos, primeira torna-se capa (`is_primary = true`, `display_order = 0`) conforme RN008.
+- `reorderPhotos(vehicleId: string, photoIds: string[]): Promise<VehiclePhoto[]>`:
+  - Valida se todos os `photoIds` pertencem ao veículo e se a contagem confere com o total cadastrado.
+  - Executa reordenação atômica em transação ACID via `vehiclePhotoRepository.reorder`. Posição 0 torna-se `is_primary = true`.
+- `deletePhoto(vehicleId: string, photoId: string): Promise<void>`:
+  - Remove arquivos do disco (`deletePhotoFiles`) e do banco (`delete`).
+  - Se a foto excluída era a capa (`is_primary = true`), elege a próxima de menor `display_order` como capa.
+- `uploadInspectionReport(vehicleId: string, file: Express.Multer.File): Promise<Vehicle>`:
+  - Remove PDF antigo do disco se existir.
+  - Grava novo PDF em `uploads/vehicles/reports/<uuid>.pdf`.
+  - Atualiza `inspection_report_url` no banco de dados.
+- `deleteInspectionReport(vehicleId: string): Promise<Vehicle | null>`:
+  - Remove arquivo físico de laudo do disco e define `inspection_report_url = null`.
+
+---
+
+## 2. `VehiclePhotoRepository`
+- **Arquivo:** `src/repositories/vehicle-photo.repository.ts`
+- **Responsabilidade:** Persistência relacional na tabela `vehicle_photos`.
+
+### Métodos:
+- `createMany(vehicleId: string, photos: CreatePhotoData[]): Promise<VehiclePhoto[]>`: Inserção múltipla parametrizada em lote.
+- `findByVehicleId(vehicleId: string): Promise<VehiclePhoto[]>`: Lista fotos do veículo ordenadas por `display_order ASC`.
+- `findById(id: string): Promise<VehiclePhoto | null>`: Busca foto por ID.
+- `countByVehicleId(vehicleId: string): Promise<{ count: number, maxOrder: number }>`: Contagem e maior display_order.
+- `reorder(vehicleId: string, photoIds: string[]): Promise<VehiclePhoto[]>`: Transação ACID (`BEGIN / COMMIT / ROLLBACK`) atualizando ordem e capa.
+- `delete(id: string): Promise<boolean>`: Exclusão física da linha no banco.
+- `setPrimary(vehicleId: string, photoId: string): Promise<void>`: Transação definindo nova foto como capa principal.
+

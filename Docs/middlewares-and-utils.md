@@ -24,6 +24,19 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
       "message": "[{\"code\":\"...\",\"message\":\"...\"}]"
     }
     ```
+  - **Erros Nativos do PostgreSQL (pgCode):**
+    - **`23505` (Unique Violation):** Responde com status `409 Conflict`:
+      ```json
+      {
+        "message": "Registro duplicado ou já existente."
+      }
+      ```
+    - **`23503` (Foreign Key Violation):** Responde com status `409 Conflict`:
+      ```json
+      {
+        "message": "Operação não permitida: registro vinculado a outros dados."
+      }
+      ```
   - **Erro Desconhecido / Não Tratado (`Error` genérico):** Registra o erro no console e responde com status `500 Internal Server Error`:
     ```json
     {
@@ -64,12 +77,12 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 - **Tipo:** Interceptor de Requisição (Autenticação Bearer Token).
 - **Entradas Analisadas:** Header HTTP `Authorization` (deve iniciar com o prefixo `Bearer `).
 - **Injeção no `Express.Request`:**
-  Injeta no objeto `req` a propriedade `user` tipada via extensão de módulo (`src/@types/express.d.ts`):
+  Injeta no objeto `req` a propriedade `user` tipada via extensão de módulo (`src/@types/express.d.ts`), priorizando os dados atuais do banco de dados (`user.id`, `user.email`, `user.role`) sobre o payload estático do token JWT para refletir alterações de perfil ou revogações imediatamente:
   ```typescript
   req.user = {
-    id: string;    // UUID do usuário
-    email: string; // E-mail cadastrado
-    role: string;  // ADMIN | VENDEDOR | VISUALIZADOR | PUBLICO
+    id: string;    // UUID do usuário no banco
+    email: string; // E-mail atualizado do banco
+    role: string;  // ADMIN | VENDEDOR | VISUALIZADOR | PUBLICO atualizado
   };
   ```
 - **Tratamento de Erros e Interrupções:**
@@ -190,7 +203,7 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `generateToken(payload: { id: string, email: string, role: string }): string`
 - **Arquivo:** `src/utils/jwt.util.ts`
-- **Descrição:** Gera e assina um token JWT contendo a identidade e o perfil do usuário com validade de 30 dias.
+- **Descrição:** Gera e assina um token JWT contendo a identidade e o perfil do usuário com validade de 30 dias. Utiliza a função interna `getSecretKey()`, que valida estritamente a variável de ambiente `process.env.JWT_SECRET` (disparando erro se ausente ou vazia).
 - **Assinatura & Parâmetros:**
   - `payload` (`{ id: string, email: string, role: string }`): Informações do usuário autenticado a serem gravadas no token.
 - **Retorno:** `string` contendo o token no formato `Header.Payload.Signature`.
@@ -202,10 +215,10 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `validateToken(token: string): string | JwtPayload`
 - **Arquivo:** `src/utils/jwt.util.ts`
-- **Descrição:** Valida a assinatura e expiração de um token JWT e extrai seu payload descriptografado.
+- **Descrição:** Valida a assinatura e expiração de um token JWT e extrai seu payload descriptografado contra `process.env.JWT_SECRET`.
 - **Assinatura & Parâmetros:**
   - `token` (`string`): Token JWT extraído do header `Authorization`.
-- **Retorno:** `JwtPayload` com as chaves `{ id, email, role, iat, exp }`. Dispara erro se a assinatura for adulterada ou o token estiver expirado.
+- **Retorno:** `JwtPayload` com as chaves `{ id, email, role, iat, exp }`. Dispara erro se a assinatura for adulterada, o token estiver expirado ou a chave `JWT_SECRET` não estiver configurada.
 - **Exemplo Real (Extraído dos testes do Vitest):**
   - Entrada: `validateToken("eyJhbGciOiJIUzI1Ni...")`
   - Saída: `{ id: "4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b", email: "admin@garagem.com", role: "ADMIN" }`
@@ -241,9 +254,9 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `buildInsertQuery(tableName: string, data: Record<string, unknown>): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Constrói dinamicamente uma declaração SQL `INSERT INTO` parametrizada com parâmetros posicionais `$1, $2...` e cláusula `RETURNING *`.
+- **Descrição:** Constrói dinamicamente uma declaração SQL `INSERT INTO` parametrizada com parâmetros posicionais `$1, $2...` e cláusula `RETURNING *`. Valida preventivamente o nome da tabela e todas as colunas com `assertValidIdentifier` (`/^[a-zA-Z_][a-zA-Z0-9_]*$/`) para blindagem contra SQL Injection.
 - **Assinatura & Parâmetros:**
-  - `tableName` (`string`): Nome da tabela no PostgreSQL.
+  - `tableName` (`string`): Nome da tabela no PostgreSQL (validado contra regex).
   - `data` (`Record<string, unknown>`): Chave-valor das colunas e valores a inserir.
 - **Retorno:** `{ query: string; values: unknown[] }`.
 - **Exemplo Real (Extraído dos testes do Vitest):**
@@ -258,20 +271,21 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `buildUpdateQuery(tableName: string, data: Record<string, unknown>, id: string): { query: string; values: unknown[] }`
+### `buildUpdateQuery(tableName: string, data: Record<string, unknown>, id: string, options?: { softDelete?: boolean }): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Constrói uma query SQL `UPDATE` parametrizada vinculando colunas e inserindo o identificador `id` no último parâmetro posicional.
+- **Descrição:** Constrói uma query SQL `UPDATE` parametrizada vinculando colunas e inserindo o identificador `id` no último parâmetro posicional. Valida identificadores com `assertValidIdentifier` e, quando `options?.softDelete !== false` (padrão), anexa a cláusula `AND deleted_at IS NULL` para impedir modificações acidentais em registros inativados logicamente.
 - **Assinatura & Parâmetros:**
   - `tableName` (`string`): Nome da tabela no PostgreSQL.
   - `data` (`Record<string, unknown>`): Colunas a serem modificadas.
   - `id` (`string`): Identificador do registro.
+  - `options` (`{ softDelete?: boolean }`, opcional): Flag indicando se a tabela opera com soft-delete (padrão `true`).
 - **Retorno:** `{ query: string; values: unknown[] }`.
 - **Exemplo Real (Extraído dos testes do Vitest):**
   - Entrada: `buildUpdateQuery("brands", { name: "Toyota do Brasil" }, "b1a2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d")`
   - Saída:
     ```javascript
     {
-      query: "UPDATE brands SET name = $1 WHERE id = $2 RETURNING *;",
+      query: "UPDATE brands SET name = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING *;",
       values: ["Toyota do Brasil", "b1a2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"]
     }
     ```
@@ -280,7 +294,7 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `buildFindQuery(tableName: string, filters: FindData, options?: { softDelete?: boolean }): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Monta a query SQL `SELECT` com operadores relacionais dinâmicos (`=`, `>=`, `<=`, `ILIKE`, `ANY`), controle de `deleted_at IS NULL` e placeholders sequenciais.
+- **Descrição:** Monta a query SQL `SELECT` com operadores relacionais dinâmicos (`=`, `>=`, `<=`, `ILIKE`, `ANY`), controle de `deleted_at IS NULL` e placeholders sequenciais. Todos os identificadores de campos são verificados com `assertValidIdentifier`.
 - **Assinatura & Parâmetros:**
   - `tableName` (`string`): Nome da tabela.
   - `filters` (`FindData`): Filtros processados.
@@ -355,3 +369,30 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 - **Exemplo Real (Extraído de `vehicle.service.spec.ts`):**
   - 1ª Chamada: `viewTracker.shouldIncrement("uuid-veiculo-1", "127.0.0.1", "Mozilla/5.0")` -> `true`
   - 2ª Chamada imediata: `viewTracker.shouldIncrement("uuid-veiculo-1", "127.0.0.1", "Mozilla/5.0")` -> `false`
+
+---
+
+### `uploadVehiclePhotos` e `uploadInspectionReport` (Middlewares de Upload)
+- **Arquivo:** `src/middlewares/upload.middleware.ts`
+- **Descrição:**
+  - `uploadVehiclePhotos`: Intercepta requisições `multipart/form-data` no campo `photos` permitindo até 15 imagens (`JPEG`, `PNG`, `WebP`) em memória (`multer.memoryStorage()`) com limite de 10MB por arquivo. Retorna `AppError(400)` se o arquivo for inválido ou exceder o limite.
+  - `uploadInspectionReport`: Intercepta requisições `multipart/form-data` no campo `report` permitindo arquivo único PDF (`application/pdf`) de até 20MB em memória.
+- **Assinatura & Parâmetros:** Middlewares Express padronizados `(req: Request, res: Response, next: NextFunction): void`.
+
+---
+
+### `processVehiclePhoto(buffer: Buffer, vehicleId: string, photoId: string): Promise<{ thumb_path: string, full_path: string }>`
+- **Arquivo:** `src/utils/image-processor.util.ts`
+- **Descrição:** Processa o buffer da imagem utilizando Sharp. Converte para WebP (quality 80) e gera miniatura (`thumb`, 400x300, `fit: cover`) e versão de alta resolução (`full`, 1280x960, `fit: inside`, `withoutEnlargement`). Salva os arquivos físicos em `uploads/vehicles/thumbs` e `uploads/vehicles/full`. Retorna os caminhos estáticos relativos.
+- **Assinatura & Parâmetros:**
+  - `buffer` (`Buffer`): Buffer binário da imagem enviada.
+  - `vehicleId` (`string`): Identificador do veículo.
+  - `photoId` (`string`): UUID gerado para a foto.
+- **Retorno:** `Promise<{ thumb_path: string, full_path: string }>`.
+
+---
+
+### `deletePhotoFiles(thumbPath: string, fullPath: string): Promise<void>` e `deleteReportFile(reportPath: string): Promise<void>`
+- **Arquivo:** `src/utils/image-processor.util.ts`
+- **Descrição:** Remove com segurança do disco os arquivos físicos de fotos e laudo pericial PDF, prevenindo path traversal e ignorando graciosamente arquivos inexistentes (`ENOENT`).
+

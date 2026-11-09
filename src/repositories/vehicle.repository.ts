@@ -232,6 +232,17 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
     }
   }
 
+  async updateInspectionReport(id: string, url: string | null): Promise<Vehicle | null> {
+    const query = `
+      UPDATE vehicles
+      SET inspection_report_url = $1, updated_at = NOW()
+      WHERE id = $2 AND deleted_at IS NULL
+      RETURNING *
+    `;
+    const result = await pool.query<Vehicle>(query, [url, id]);
+    return result.rows[0] || null;
+  }
+
   async findCatalog(filters: FindCatalogFilters): Promise<{
     items: (Vehicle & { brand_name: string; model_name: string; cover_photo_url: string | null })[];
     total: number;

@@ -37,7 +37,7 @@ export const createVehicleE2EContext = () => {
     await pool.query(userQuery, [TOKEN_ADMIN_ID, TOKEN_SELLER_ID, TOKEN_VIEWER_ID]);
 
     // Seed de Loja
-    const cnpj = `${runId.replace(/\D/g, '').padEnd(10, '0').slice(0, 10)}9999`.slice(0, 14);
+    const cnpj = `${Math.floor(10000000000000 + Math.random() * 90000000000000)}`;
     const storeRes = await pool.query(
       `INSERT INTO stores (name, phone, cnpj, zip_code, street, number, neighborhood, city, state)
        VALUES ($1, '(37) 98888-1111', $2, '35500000', 'Rua E2E', '100', 'Centro', 'Divinópolis', 'MG')

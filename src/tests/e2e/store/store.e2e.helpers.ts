@@ -52,14 +52,13 @@ export const createStoreE2EContext = () => {
     }
   });
 
-  const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const createdCnpjs = new Set<string>();
   let sequence = 0;
 
   const uniqueCnpj = () => {
     const seq = String(++sequence).padStart(4, '0');
-    const base = `${runId.replace(/\D/g, '').padEnd(10, '0').slice(0, 10)}${seq}`;
-    return base.slice(0, 14);
+    const randomPrefix = String(Math.floor(1000000000 + Math.random() * 9000000000));
+    return `${randomPrefix.slice(0, 10)}${seq}`;
   };
 
   const signToken = (

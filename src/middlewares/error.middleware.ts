@@ -1,5 +1,6 @@
 import { AppError } from '#src/errors/app.error.js';
 import { NextFunction, Request, Response } from 'express';
+import { MulterError } from 'multer';
 import { ZodError } from 'zod';
 
 export default function errorHandler(error: Error, req: Request, res: Response, next: NextFunction) { //eslint-disable-line
@@ -7,6 +8,10 @@ export default function errorHandler(error: Error, req: Request, res: Response, 
 
   if (error instanceof AppError) {
     return res.status(error.statusCode).json({ message: error.message });
+  }
+
+  if (error instanceof MulterError) {
+    return res.status(400).json({ message: error.message });
   }
 
   if (error instanceof ZodError) {

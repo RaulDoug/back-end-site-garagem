@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import VehicleController from '#controllers/vehicle.controller.js';
+import { VehicleMediaController } from '#controllers/vehicle-media.controller.js';
 import { authenticateJWT } from '#middlewares/auth.middleware.js';
 import { authorizeRoles, includeDeletedValidateRole } from '#middlewares/role.middleware.js';
 import { validate } from '#middlewares/validate.middleware.js';
+import { uploadVehiclePhotos, uploadInspectionReport } from '#middlewares/upload.middleware.js';
 import {
   findVehicleSchema,
   findByIdVehicleSchema,
@@ -10,10 +12,13 @@ import {
   updateVehicleSchema,
   deleteVehicleSchema,
   compareVehiclesSchema,
+  reorderPhotosSchema,
+  deletePhotoSchema,
 } from '#schemas/vehicle.schema.js';
 
 const router = Router();
 const vehicleController = new VehicleController();
+const vehicleMediaController = new VehicleMediaController();
 
 // 1. Vitrine Pública - Busca e Catálogo Geral (UC01)
 router.get('/', validate(findVehicleSchema), vehicleController.findPublic);
@@ -68,6 +73,52 @@ router.delete(
   authorizeRoles('ADMIN'),
   validate(deleteVehicleSchema),
   vehicleController.delete
+);
+
+// --- Fase 4: Mídias, Galeria Drag & Drop e Laudo Pericial (RN006, RN008, UC07) ---
+
+// 9. Upload de Fotos do Veículo
+router.post(
+  '/:id/photos',
+  authenticateJWT,
+  authorizeRoles('ADMIN', 'VENDEDOR'),
+  uploadVehiclePhotos,
+  vehicleMediaController.uploadPhotos
+);
+
+// 10. Reordenação da Galeria de Fotos
+router.patch(
+  '/:id/photos/reorder',
+  authenticateJWT,
+  authorizeRoles('ADMIN', 'VENDEDOR'),
+  validate(reorderPhotosSchema),
+  vehicleMediaController.reorderPhotos
+);
+
+// 11. Exclusão de Foto Específica
+router.delete(
+  '/:id/photos/:photoId',
+  authenticateJWT,
+  authorizeRoles('ADMIN', 'VENDEDOR'),
+  validate(deletePhotoSchema),
+  vehicleMediaController.deletePhoto
+);
+
+// 12. Upload / Substituição de Laudo Pericial (PDF)
+router.patch(
+  '/:id/inspection-report',
+  authenticateJWT,
+  authorizeRoles('ADMIN', 'VENDEDOR'),
+  uploadInspectionReport,
+  vehicleMediaController.uploadInspectionReport
+);
+
+// 13. Exclusão do Laudo Pericial
+router.delete(
+  '/:id/inspection-report',
+  authenticateJWT,
+  authorizeRoles('ADMIN', 'VENDEDOR'),
+  vehicleMediaController.deleteInspectionReport
 );
 
 export default router;

@@ -1345,6 +1345,224 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/vehicles/{id}/photos:
+    post:
+      tags:
+        - Veículos
+      summary: Upload de Fotos do Veículo (UC07, RN006, RN008)
+      description: Realiza upload de até 15 fotos para a galeria. Converte para WebP (thumb 400x300 e full 1280x960). Primeira foto torna-se capa principal (is_primary = true).
+      operationId: uploadVehiclePhotos
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - photos
+              properties:
+                photos:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Imagens nos formatos JPEG, PNG ou WebP (máx 10MB cada, até 15 fotos)
+      responses:
+        '201':
+          description: Fotos enviadas e processadas com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  photos:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        vehicle_id:
+                          type: string
+                          format: uuid
+                        thumb_path:
+                          type: string
+                        full_path:
+                          type: string
+                        display_order:
+                          type: integer
+                        is_primary:
+                          type: boolean
+                        created_at:
+                          type: string
+                          format: date-time
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles/{id}/photos/reorder:
+    patch:
+      tags:
+        - Veículos
+      summary: Reordenação da Galeria de Fotos (Drag & Drop, RN008)
+      description: Atualiza a ordem das fotos do veículo em transação atômica. A foto na posição 0 torna-se capa principal (is_primary = true).
+      operationId: reorderVehiclePhotos
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - photo_ids
+              properties:
+                photo_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+      responses:
+        '200':
+          description: Fotos reordenadas com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  photos:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles/{id}/photos/{photoId}:
+    delete:
+      tags:
+        - Veículos
+      summary: Exclusão de Foto da Galeria
+      description: Remove foto do banco de dados e apaga os arquivos físicos (thumb e full) do disco. Elege nova capa caso a foto excluída fosse a capa.
+      operationId: deleteVehiclePhoto
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Foto excluída com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles/{id}/inspection-report:
+    patch:
+      tags:
+        - Veículos
+      summary: Upload de Laudo Pericial Cautelar (PDF)
+      description: Anexa ou substitui laudo técnico pericial em formato PDF (máx 20MB). Remove arquivo físico anterior do disco se existente.
+      operationId: uploadInspectionReport
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - report
+              properties:
+                report:
+                  type: string
+                  format: binary
+                  description: Arquivo PDF de até 20MB
+      responses:
+        '200':
+          description: Laudo enviado e vinculado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inspection_report_url:
+                    type: string
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Veículos
+      summary: Exclusão de Laudo Pericial
+      description: Remove o laudo pericial (PDF) do disco e desvincula do veículo.
+      operationId: deleteInspectionReport
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Laudo excluído com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   securitySchemes:
     BearerAuth:

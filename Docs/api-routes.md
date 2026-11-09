@@ -86,7 +86,7 @@ Controle de autenticação, criação de credenciais e gerenciamento de perfis d
 }
 ```
 - **`400 Bad Request`**: Validação de campos via Zod.
-- **`401 Unauthorized`**: `{"message": "Credenciais inválidas"}`.
+- **`401 Unauthorized`**: `{"message": "Credenciais inválidas"}` (disparado se e-mail não existir, senha estiver incorreta ou a conta estiver inativa `is_active: false`).
 - **`429 Too Many Requests`**: `{"message": "Muitas tentativas de login neste IP, tente novamente após 15 minutos."}`.
 
 ---
@@ -106,8 +106,8 @@ Controle de autenticação, criação de credenciais e gerenciamento de perfis d
 | `email` | `string` | Sim | Formato de e-mail válido |
 | `password` | `string` | Sim | Mínimo 8 caracteres, contendo maiúscula, minúscula, número e caractere especial |
 | `phone` | `string` | Sim | Regex `^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$` |
-| `role` | `enum` | Não | `'ADMIN'`, `'VENDEDOR'`, `'VISUALIZADOR'`, `'PUBLICO'` |
-| `commission_rates` | `number` | Não | Mínimo 0 e máximo 100 |
+| `role` | `enum` | Não | `'ADMIN'`, `'VENDEDOR'`, `'VISUALIZADOR'`, `'PUBLICO'` (padrão `'VENDEDOR'`) |
+| `commission_rates` | `number` | Não | Mínimo 0 e máximo 100 (opcional, grava `null` quando omitido) |
 
 - **Exemplo de Envio (extraído de `user.e2e.register.spec.ts`):**
 ```json
@@ -906,9 +906,13 @@ Módulo central do sistema: vitrine pública, comparador e backoffice administra
 
 ### Respostas
 - **`200 OK`**: Retorna `{"item": { ... }}` atualizado.
-- **`400 Bad Request`**: Nenhum dado informado para atualização.
-- **`404 Not Found`**: Veículo inexistente.
-- **`409 Conflict`**: Se a placa for alterada para outra já ativa.
+- **`400 Bad Request`**:
+  - Nenhum dado informado para atualização.
+  - Violação de regras condicionais do tipo de venda (`purchase_price` <= 0 para `PROPRIO`; `owner_name`, `owner_contact`, `owner_price` ou `store_commission_rate` ausentes/inválidos para `CONSIGNADO`).
+- **`404 Not Found`**: Veículo inexistente ou inativo.
+- **`409 Conflict`**:
+  - Se a placa for alterada para outra já ativa (`{"message": "Placa já cadastrada para outro veículo ativo"}`).
+  - Violação de unicidade ou integridade referencial no PostgreSQL.
 
 ---
 
@@ -932,3 +936,135 @@ Módulo central do sistema: vitrine pública, comparador e backoffice administra
 - **`401 Unauthorized`**: Token ausente ou inválido.
 - **`403 Forbidden`**: Usuário não possui perfil `ADMIN` (ex: `VENDEDOR` recebe 403).
 - **`404 Not Found`**: Veículo inexistente.
+
+---
+
+## `POST` /api/vehicles/:id/photos
+- **Descrição:** Realiza upload de 1 a 15 fotos para a galeria do veículo (UC07, RN006, RN008). Redimensiona em memória e salva no disco em WebP (`thumb` 400x300 e `full` 1280x960). Se o veículo tem 0 fotos, a primeira torna-se capa principal (`is_primary: true`).
+- **Middlewares / Autenticação:** `authenticateJWT`, `authorizeRoles('ADMIN', 'VENDEDOR')`, `uploadVehiclePhotos`.
+
+### Parâmetros & Payload
+- **Path Params (`req.params`):** `id` (UUID do veículo).
+- **Multipart Form (`multipart/form-data`):**
+  - `photos`: De 1 a 15 arquivos de imagem (`image/jpeg`, `image/png`, `image/webp`), limite de 10MB por arquivo.
+
+### Respostas
+- **`201 Created`**:
+```json
+{
+  "photos": [
+    {
+      "id": "e3b0c442-98fc-1c14-9afb-4c8996fb9242",
+      "vehicle_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "thumb_path": "/uploads/vehicles/thumbs/e3b0c442-98fc-1c14-9afb-4c8996fb9242.webp",
+      "full_path": "/uploads/vehicles/full/e3b0c442-98fc-1c14-9afb-4c8996fb9242.webp",
+      "display_order": 0,
+      "is_primary": true,
+      "created_at": "2026-11-09T18:00:00.000Z"
+    }
+  ]
+}
+```
+- **`400 Bad Request`**: Formato não suportado, arquivo acima de 10MB ou mais de 15 fotos.
+- **`401 Unauthorized`**: Token ausente ou inválido.
+- **`403 Forbidden`**: Perfil não autorizado (ex: `VISUALIZADOR`).
+- **`404 Not Found`**: Veículo não encontrado.
+
+---
+
+## `PATCH` /api/vehicles/:id/photos/reorder
+- **Descrição:** Reordena a galeria de fotos do veículo (Drag & Drop). A foto na posição 0 torna-se automaticamente a capa (`is_primary: true`), e as demais tornam-se `is_primary: false` (RN008). Operação atômica em transação ACID.
+- **Middlewares / Autenticação:** `authenticateJWT`, `authorizeRoles('ADMIN', 'VENDEDOR')`, `validate(reorderPhotosSchema)`.
+
+### Parâmetros & Payload
+- **Path Params (`req.params`):** `id` (UUID do veículo).
+- **Body (`req.body`):**
+```json
+{
+  "photo_ids": [
+    "b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
+    "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+  ]
+}
+```
+
+### Respostas
+- **`200 OK`**:
+```json
+{
+  "photos": [
+    {
+      "id": "b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
+      "vehicle_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "thumb_path": "/uploads/vehicles/thumbs/b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22.webp",
+      "full_path": "/uploads/vehicles/full/b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22.webp",
+      "display_order": 0,
+      "is_primary": true,
+      "created_at": "2026-11-09T18:00:00.000Z"
+    }
+  ]
+}
+```
+- **`400 Bad Request`**: IDs duplicados, IDs não pertencentes ao veículo ou divergência no total de fotos.
+- **`401 Unauthorized`**: Token ausente ou inválido.
+- **`403 Forbidden`**: Perfil não autorizado.
+- **`404 Not Found`**: Veículo não encontrado.
+
+---
+
+## `DELETE` /api/vehicles/:id/photos/:photoId
+- **Descrição:** Remove uma foto específica da galeria e apaga os arquivos físicos (`thumb` e `full`) do disco. Se a foto excluída era a principal (`is_primary: true`), a foto remanescente de menor `display_order` assume como nova capa.
+- **Middlewares / Autenticação:** `authenticateJWT`, `authorizeRoles('ADMIN', 'VENDEDOR')`, `validate(deletePhotoSchema)`.
+
+### Parâmetros & Payload
+- **Path Params (`req.params`):** `id` (UUID do veículo), `photoId` (UUID da foto).
+
+### Respostas
+- **`200 OK`**: `{"message": "Foto excluída com sucesso"}`
+- **`400 Bad Request`**: Foto informada não pertence ao veículo informado.
+- **`401 Unauthorized`**: Token ausente ou inválido.
+- **`403 Forbidden`**: Perfil não autorizado.
+- **`404 Not Found`**: Veículo ou foto não encontrados.
+
+---
+
+## `PATCH` /api/vehicles/:id/inspection-report
+- **Descrição:** Realiza upload ou substituição do laudo pericial cautelar (PDF, máx 20MB). Remove o arquivo físico anterior do disco se existir.
+- **Middlewares / Autenticação:** `authenticateJWT`, `authorizeRoles('ADMIN', 'VENDEDOR')`, `uploadInspectionReport`.
+
+### Parâmetros & Payload
+- **Path Params (`req.params`):** `id` (UUID do veículo).
+- **Multipart Form (`multipart/form-data`):**
+  - `report`: Arquivo único com MIME `application/pdf`, máx 20MB.
+
+### Respostas
+- **`200 OK`**:
+```json
+{
+  "vehicle": {
+    "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "inspection_report_url": "/uploads/vehicles/reports/c1f542be-5a1e-450a-8bf8-d8f99e469aa7.pdf"
+  },
+  "inspection_report_url": "/uploads/vehicles/reports/c1f542be-5a1e-450a-8bf8-d8f99e469aa7.pdf"
+}
+```
+- **`400 Bad Request`**: Arquivo ausente, não PDF ou superior a 20MB.
+- **`401 Unauthorized`**: Token ausente ou inválido.
+- **`403 Forbidden`**: Perfil não autorizado.
+- **`404 Not Found`**: Veículo não encontrado.
+
+---
+
+## `DELETE` /api/vehicles/:id/inspection-report
+- **Descrição:** Remove o laudo pericial (PDF) físico do disco e atualiza `inspection_report_url` para `null` no banco de dados.
+- **Middlewares / Autenticação:** `authenticateJWT`, `authorizeRoles('ADMIN', 'VENDEDOR')`.
+
+### Parâmetros & Payload
+- **Path Params (`req.params`):** `id` (UUID do veículo).
+
+### Respostas
+- **`200 OK`**: `{"message": "Laudo pericial excluído com sucesso"}`
+- **`401 Unauthorized`**: Token ausente ou inválido.
+- **`403 Forbidden`**: Perfil não autorizado.
+- **`404 Not Found`**: Veículo não encontrado.
+
