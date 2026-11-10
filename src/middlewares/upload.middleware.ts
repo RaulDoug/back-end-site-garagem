@@ -1,8 +1,25 @@
 import { Request, Response, NextFunction } from 'express';
 import multer, { MulterError } from 'multer';
 import { AppError } from '#src/errors/app.error.js';
+import crypto from 'crypto';
+import path from 'path';
+import { TEMP_DIR, ensureUploadDirs } from '#utils/storage.util.js';
 
-const storage = multer.memoryStorage();
+const storage = multer.diskStorage({
+  destination: async (_req, _file, cb) => {
+    try {
+      await ensureUploadDirs();
+      cb(null, TEMP_DIR);
+    } catch (err) {
+      cb(err as Error, '');
+    }
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const uniqueName = `${crypto.randomUUID()}${ext}`;
+    cb(null, uniqueName);
+  }
+});
 
 const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 const ALLOWED_REPORT_MIMES = ['application/pdf'];

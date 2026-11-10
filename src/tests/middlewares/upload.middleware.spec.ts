@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import express, { Request, Response, NextFunction } from 'express';
 import request from 'supertest';
+import fs from 'fs';
 import { uploadVehiclePhotos, uploadInspectionReport } from '#middlewares/upload.middleware.js';
 import { AppError } from '#src/errors/app.error.js';
 
@@ -10,17 +11,29 @@ function createTestApp() {
   app.post(
     '/test-photos',
     uploadVehiclePhotos,
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const files = req.files as Express.Multer.File[];
+      const fileData = files?.map((f) => ({
+        originalname: f.originalname,
+        mimetype: f.mimetype,
+        size: f.size,
+        hasPath: typeof f.path === 'string' && f.path.length > 0,
+        path: f.path,
+      }));
+
+      // Limpeza dos arquivos temporários gerados no teste
+      if (files) {
+        for (const file of files) {
+          if (file.path && fs.existsSync(file.path)) {
+            await fs.promises.unlink(file.path);
+          }
+        }
+      }
+
       res.status(200).json({
         success: true,
         count: files?.length || 0,
-        files: files?.map((f) => ({
-          originalname: f.originalname,
-          mimetype: f.mimetype,
-          size: f.size,
-          isBuffer: Buffer.isBuffer(f.buffer),
-        })),
+        files: fileData,
       });
     }
   );
@@ -28,13 +41,20 @@ function createTestApp() {
   app.post(
     '/test-report',
     uploadInspectionReport,
-    (req: Request, res: Response) => {
-      res.status(200).json({
+    async (req: Request, res: Response) => {
+      const filePath = req.file?.path;
+      const fileData = {
         success: true,
         originalname: req.file?.originalname,
         mimetype: req.file?.mimetype,
-        isBuffer: Buffer.isBuffer(req.file?.buffer),
-      });
+        hasPath: typeof filePath === 'string' && filePath.length > 0,
+      };
+
+      if (filePath && fs.existsSync(filePath)) {
+        await fs.promises.unlink(filePath);
+      }
+
+      res.status(200).json(fileData);
     }
   );
 
@@ -55,7 +75,7 @@ describe('Upload Middleware', () => {
   const app = createTestApp();
 
   describe('uploadVehiclePhotos', () => {
-    it('deve aceitar envio de imagens válidas (JPEG, PNG, WebP) em memória', async () => {
+    it('deve aceitar envio de imagens válidas (JPEG, PNG, WebP) em disco temporário', async () => {
       const fakeImage = Buffer.from('fake-jpeg-data');
 
       const res = await request(app)
@@ -66,7 +86,7 @@ describe('Upload Middleware', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.count).toBe(2);
-      expect(res.body.files[0].isBuffer).toBe(true);
+      expect(res.body.files[0].hasPath).toBe(true);
     });
 
     it('deve rejeitar arquivo com tipo MIME não permitido (ex: text/plain)', async () => {
@@ -97,7 +117,7 @@ describe('Upload Middleware', () => {
   });
 
   describe('uploadInspectionReport', () => {
-    it('deve aceitar arquivo único PDF com MIME application/pdf', async () => {
+    it('deve aceitar arquivo único PDF em disco temporário com MIME application/pdf', async () => {
       const fakePdf = Buffer.from('%PDF-1.4 fake pdf data');
 
       const res = await request(app)
@@ -110,7 +130,7 @@ describe('Upload Middleware', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.mimetype).toBe('application/pdf');
-      expect(res.body.isBuffer).toBe(true);
+      expect(res.body.hasPath).toBe(true);
     });
 
     it('deve rejeitar arquivo que não seja PDF', async () => {

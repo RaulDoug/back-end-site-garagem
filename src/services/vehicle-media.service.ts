@@ -1,6 +1,4 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 import { VehicleRepository, type Vehicle } from '#repositories/vehicle.repository.js';
 import {
   VehiclePhotoRepository,
@@ -11,14 +9,15 @@ import {
   processVehiclePhoto,
   deletePhotoFiles,
   deleteReportFile,
-  ensureUploadDirs,
 } from '#utils/image-processor.util.js';
 import { AppError, NotFoundError } from '#src/errors/app.error.js';
+import { StorageProvider, LocalStorageProvider   } from '#utils/storage.util.js';
 
 export class VehicleMediaService {
   constructor(
     private readonly vehicleRepository: VehicleRepository = new VehicleRepository(),
-    private readonly vehiclePhotoRepository: VehiclePhotoRepository = new VehiclePhotoRepository()
+    private readonly vehiclePhotoRepository: VehiclePhotoRepository = new VehiclePhotoRepository(),
+    private readonly storage: StorageProvider = new LocalStorageProvider()
   ) {}
 
   /**
@@ -26,28 +25,28 @@ export class VehicleMediaService {
    * Aplica RN008: se o veículo tem 0 fotos, a primeira é definida como is_primary = true.
    */
   async uploadPhotos(vehicleId: string, files: Express.Multer.File[]): Promise<VehiclePhoto[]> {
-    const vehicle = await this.vehicleRepository.findById(vehicleId);
-    if (!vehicle) {
-      throw new NotFoundError('Veículo não encontrado');
-    }
-
-    if (!files || files.length === 0) {
-      throw new AppError('Nenhuma foto enviada para upload', 400);
-    }
-
-    const countData = await this.vehiclePhotoRepository.countByVehicleId(vehicleId);
     const photosToInsert: CreatePhotoData[] = [];
 
-    try {
+    try {  
+      const vehicle = await this.vehicleRepository.findById(vehicleId);
+      if (!vehicle) {
+        throw new NotFoundError('Veículo não encontrado');
+      }
+
+      if (!files || files.length === 0) {
+        throw new AppError('Nenhuma foto enviada para upload', 400);
+      }
+
+      const countData = await this.vehiclePhotoRepository.countByVehicleId(vehicleId);
+    
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const photoId = crypto.randomUUID();
 
-        const { thumb_path, full_path } = await processVehiclePhoto(
-          file.buffer,
-          vehicleId,
-          photoId
-        );
+        const { thumbBuffer, fullBuffer } = await processVehiclePhoto(file.path);
+
+        const thumb_path = await this.storage.save('thumbs', `${photoId}.webp`, thumbBuffer);
+        const full_path = await this.storage.save('full', `${photoId}.webp`, fullBuffer);
 
         const isPrimary = countData.count === 0 ? i === 0 : false;
         const displayOrder = countData.count === 0 ? i : countData.maxOrder + 1 + i;
@@ -66,6 +65,10 @@ export class VehicleMediaService {
         await deletePhotoFiles(photo.thumb_path, photo.full_path);
       }
       throw error;
+    } finally {
+      if (files && files.length > 0) {
+        await Promise.all(files.map((file) => this.storage.deleteTempFile(file.path)));
+      }
     }
   }
 
@@ -125,40 +128,41 @@ export class VehicleMediaService {
    * Realiza upload do laudo pericial (PDF). Remove laudo anterior do disco se existir.
    */
   async uploadInspectionReport(vehicleId: string, file: Express.Multer.File): Promise<Vehicle> {
-    const vehicle = await this.vehicleRepository.findById(vehicleId);
-    if (!vehicle) {
-      throw new NotFoundError('Veículo não encontrado');
-    }
+    let relativePath: string | null = null;
 
-    if (!file || !file.buffer) {
-      throw new AppError('Arquivo de laudo não informado', 400);
-    }
+    try {  
+      const vehicle = await this.vehicleRepository.findById(vehicleId);
+      if (!vehicle) {
+        throw new NotFoundError('Veículo não encontrado');
+      }
 
-    ensureUploadDirs();
+      if (!file || !file.path) {
+        throw new AppError('Arquivo de laudo não informado', 400);
+      }
 
-    const oldReportUrl = vehicle.inspection_report_url;
-    const reportId = crypto.randomUUID();
-    const relativePath = `/uploads/vehicles/reports/${reportId}.pdf`;
-    const absolutePath = path.resolve(process.cwd(), relativePath.slice(1));
+      const reportId = crypto.randomUUID();
+      relativePath = await this.storage.save('reports', `${reportId}.pdf`, file.path);
+    
+      const updated = await this.vehicleRepository.updateInspectionReport(vehicleId, relativePath);
 
-    await fs.promises.writeFile(absolutePath, file.buffer);
-
-    let updated: Vehicle | null;
-    try {
-      updated = await this.vehicleRepository.updateInspectionReport(vehicleId, relativePath);
       if (!updated) {
         throw new AppError('Falha ao atualizar registro do laudo', 500);
       }
+
+      if (vehicle.inspection_report_url) {
+        await deleteReportFile(vehicle.inspection_report_url);
+      }
+
+      return updated;
     } catch (error) {
-      await deleteReportFile(relativePath);
+      if (relativePath) {
+        await deleteReportFile(relativePath);
+      }
+      
       throw error;
+    } finally {
+      if (file?.path) await this.storage.deleteTempFile(file.path);
     }
-
-    if (oldReportUrl) {
-      await deleteReportFile(oldReportUrl);
-    }
-
-    return updated;
   }
 
   /**

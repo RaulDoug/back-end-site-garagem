@@ -10,14 +10,15 @@ import {
 } from '#utils/image-processor.util.js';
 
 describe('image-processor util', () => {
-  const testVehicleId = 'test-veh-uuid';
   const testPhotoId = 'test-photo-uuid';
   const testDeletePhotoId = 'test-photo-delete-uuid';
   const testReportPath = '/uploads/vehicles/reports/test-report.pdf';
+  const tempSourcePath = path.resolve(process.cwd(), 'uploads/vehicles/temp/test-source-sharp.jpg');
 
   afterAll(async () => {
     // Cleanup any lingering test files in uploads
     const pathsToClean = [
+      tempSourcePath,
       path.resolve(process.cwd(), 'uploads/vehicles/thumbs', `${testPhotoId}.webp`),
       path.resolve(process.cwd(), 'uploads/vehicles/full', `${testPhotoId}.webp`),
       path.resolve(process.cwd(), 'uploads/vehicles/thumbs', `${testDeletePhotoId}.webp`),
@@ -26,23 +27,28 @@ describe('image-processor util', () => {
     ];
     for (const filePath of pathsToClean) {
       if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+        try {
+          fs.unlinkSync(filePath);
+        } catch {}
       }
     }
   });
 
   describe('ensureUploadDirs', () => {
-    it('deve criar os diretórios de upload se não existirem', () => {
-      ensureUploadDirs();
+    it('deve criar os diretórios de upload se não existirem', async () => {
+      await ensureUploadDirs();
       expect(fs.existsSync(path.resolve(process.cwd(), 'uploads/vehicles/thumbs'))).toBe(true);
       expect(fs.existsSync(path.resolve(process.cwd(), 'uploads/vehicles/full'))).toBe(true);
       expect(fs.existsSync(path.resolve(process.cwd(), 'uploads/vehicles/reports'))).toBe(true);
+      expect(fs.existsSync(path.resolve(process.cwd(), 'uploads/vehicles/temp'))).toBe(true);
     });
   });
 
   describe('processVehiclePhoto', () => {
-    it('deve processar imagem válida gerando thumb e full em formato WebP', async () => {
-      const inputBuffer = await sharp({
+    it('deve processar arquivo de imagem válido gerando thumbBuffer e fullBuffer em formato WebP', async () => {
+      await ensureUploadDirs();
+
+      await sharp({
         create: {
           width: 1600,
           height: 1200,
@@ -51,49 +57,46 @@ describe('image-processor util', () => {
         },
       })
         .jpeg()
-        .toBuffer();
+        .toFile(tempSourcePath);
 
-      const result = await processVehiclePhoto(inputBuffer, testVehicleId, testPhotoId);
+      const result = await processVehiclePhoto(tempSourcePath);
 
-      expect(result).toEqual({
-        thumb_path: `/uploads/vehicles/thumbs/${testPhotoId}.webp`,
-        full_path: `/uploads/vehicles/full/${testPhotoId}.webp`,
-      });
+      expect(Buffer.isBuffer(result.thumbBuffer)).toBe(true);
+      expect(Buffer.isBuffer(result.fullBuffer)).toBe(true);
 
-      const thumbFullPath = path.resolve(process.cwd(), `uploads/vehicles/thumbs/${testPhotoId}.webp`);
-      const fullImageFullPath = path.resolve(process.cwd(), `uploads/vehicles/full/${testPhotoId}.webp`);
-
-      expect(fs.existsSync(thumbFullPath)).toBe(true);
-      expect(fs.existsSync(fullImageFullPath)).toBe(true);
-
-      const thumbMetadata = await sharp(thumbFullPath).metadata();
+      const thumbMetadata = await sharp(result.thumbBuffer).metadata();
       expect(thumbMetadata.format).toBe('webp');
       expect(thumbMetadata.width).toBe(400);
       expect(thumbMetadata.height).toBe(300);
 
-      const fullMetadata = await sharp(fullImageFullPath).metadata();
+      const fullMetadata = await sharp(result.fullBuffer).metadata();
       expect(fullMetadata.format).toBe('webp');
       expect(fullMetadata.width).toBeLessThanOrEqual(1280);
     });
 
-    it('deve rejeitar buffer inválido com erro apropriado', async () => {
-      const invalidBuffer = Buffer.from('arquivo corrompido ou invalido');
+    it('deve rejeitar caminho inválido ou corrompido com erro apropriado', async () => {
+      const invalidPath = path.resolve(process.cwd(), 'uploads/vehicles/temp/invalid-fake.jpg');
+      await fs.promises.writeFile(invalidPath, 'arquivo corrompido ou invalido');
 
-      await expect(
-        processVehiclePhoto(invalidBuffer, testVehicleId, 'invalid-photo')
-      ).rejects.toThrow();
+      try {
+        await expect(processVehiclePhoto(invalidPath)).rejects.toThrow();
+      } finally {
+        if (fs.existsSync(invalidPath)) {
+          await fs.promises.unlink(invalidPath);
+        }
+      }
     });
   });
 
   describe('deletePhotoFiles', () => {
     it('deve remover os arquivos de imagem thumb e full do disco com segurança', async () => {
+      await ensureUploadDirs();
       const thumbRelative = `/uploads/vehicles/thumbs/${testDeletePhotoId}.webp`;
       const fullRelative = `/uploads/vehicles/full/${testDeletePhotoId}.webp`;
 
       const thumbAbs = path.resolve(process.cwd(), `uploads/vehicles/thumbs/${testDeletePhotoId}.webp`);
       const fullAbs = path.resolve(process.cwd(), `uploads/vehicles/full/${testDeletePhotoId}.webp`);
 
-      ensureUploadDirs();
       fs.writeFileSync(thumbAbs, 'fake-thumb');
       fs.writeFileSync(fullAbs, 'fake-full');
 
@@ -115,9 +118,9 @@ describe('image-processor util', () => {
 
   describe('deleteReportFile', () => {
     it('deve remover o arquivo físico de laudo PDF com segurança', async () => {
+      await ensureUploadDirs();
       const reportAbs = path.resolve(process.cwd(), 'uploads/vehicles/reports/test-report.pdf');
 
-      ensureUploadDirs();
       fs.writeFileSync(reportAbs, 'fake-pdf');
       expect(fs.existsSync(reportAbs)).toBe(true);
 
