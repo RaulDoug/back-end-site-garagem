@@ -216,7 +216,8 @@ describe('VehicleService e Utilitários', () => {
 
       const res = await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
 
-      expect(vehicleRepository.incrementViewMetrics).toHaveBeenCalledWith(mockVehicle.id);
+      expect(vehicleRepository.incrementViewMetrics).not.toHaveBeenCalled();
+      expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(1);
       expect(res.total_views).toBe(mockDetailedVehicle.total_views + 1);
     });
 
@@ -224,26 +225,28 @@ describe('VehicleService e Utilitários', () => {
       vi.mocked(vehicleRepository.findDetailedById).mockResolvedValue(mockDetailedVehicle);
 
       await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
-      expect(vehicleRepository.incrementViewMetrics).toHaveBeenCalledTimes(1);
+      expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(1);
 
       // Avança 10 minutos
       vi.advanceTimersByTime(10 * 60 * 1000);
 
       await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
-      expect(vehicleRepository.incrementViewMetrics).toHaveBeenCalledTimes(1);
+      expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(1);
+      expect(vehicleRepository.incrementViewMetrics).not.toHaveBeenCalled();
     });
 
     it('acesso após 31 minutos deve incrementar novamente', async () => {
       vi.mocked(vehicleRepository.findDetailedById).mockResolvedValue(mockDetailedVehicle);
 
       await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
-      expect(vehicleRepository.incrementViewMetrics).toHaveBeenCalledTimes(1);
+      expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(1);
 
       // Avança 31 minutos
       vi.advanceTimersByTime(31 * 60 * 1000);
 
       await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
-      expect(vehicleRepository.incrementViewMetrics).toHaveBeenCalledTimes(2);
+      expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(2);
+      expect(vehicleRepository.incrementViewMetrics).not.toHaveBeenCalled();
     });
 
     it('findByIdAdmin NUNCA deve incrementar métrica de visualização pública', async () => {

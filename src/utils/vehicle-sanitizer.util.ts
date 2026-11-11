@@ -1,15 +1,26 @@
 /**
  * Sanitiza dados confidenciais do veículo para perfis públicos e visualizadores (RN003 / LGPD).
  */
-export type SensitiveVehicleFields =
-  | 'full_license_plate'
-  | 'purchase_price'
-  | 'owner_price'
-  | 'owner_name'
-  | 'owner_contact'
-  | 'store_commission_rate';
+const SENSITIVE_VEHICLE_FIELDS = [
+  'full_license_plate',
+  'purchase_price',
+  'owner_price',
+  'owner_name',
+  'owner_contact',
+  'store_commission_rate'
+] as const;
+
+export type SensitiveVehicleFields = typeof SENSITIVE_VEHICLE_FIELDS[number];
 
 export type SanitizedVehicle<T> = Omit<T, SensitiveVehicleFields>;
+
+function removeSensitiveFields(vehicle: Record<string, unknown>): Record<string, unknown> {
+  const clone = { ...vehicle };
+
+  SENSITIVE_VEHICLE_FIELDS.forEach(field => delete clone[field]);
+
+  return clone;
+}
 
 /**
  * Sanitiza dados confidenciais do veículo para perfis públicos e visualizadores (RN003 / LGPD).
@@ -19,27 +30,38 @@ export function sanitizeVehicleForRole<T extends object>(
   role: 'ADMIN' | 'VENDEDOR'
 ): T;
 export function sanitizeVehicleForRole<T extends object>(
+  vehicle: T[],
+  role: 'ADMIN' | 'VENDEDOR'
+): T[];
+export function sanitizeVehicleForRole<T extends object>(
   vehicle: T,
   role?: string
 ): SanitizedVehicle<T>;
 export function sanitizeVehicleForRole<T extends object>(
-  vehicle: T,
+  vehicle: T[],
   role?: string
-): T | SanitizedVehicle<T> {
-  if (role === 'ADMIN' || role === 'VENDEDOR') {
+): SanitizedVehicle<T>[];
+export function sanitizeVehicleForRole<T extends object>(
+  vehicle: T | T[],
+  role?: string
+): T | SanitizedVehicle<T> | T[] | SanitizedVehicle<T>[] {
+  if (!vehicle) return vehicle;
+
+  
+  if (Array.isArray(vehicle)) {
+    if (role?.toUpperCase() === 'ADMIN' || role?.toUpperCase() === 'VENDEDOR') {
+      return vehicle;
+    }
+
+    return vehicle.map(v => 
+      removeSensitiveFields(v as Record<string, unknown>)
+    ) as SanitizedVehicle<T>[];
+  }
+
+  if (role?.toUpperCase() === 'ADMIN' || role?.toUpperCase() === 'VENDEDOR') {
     return { ...vehicle };
   }
 
-  const {
-    full_license_plate, // eslint-disable-line
-    purchase_price, // eslint-disable-line
-    owner_price, // eslint-disable-line
-    owner_name, // eslint-disable-line
-    owner_contact, // eslint-disable-line
-    store_commission_rate, // eslint-disable-line
-    ...publicData
-  } = vehicle as Record<string, unknown>;
-
-  return publicData as SanitizedVehicle<T>;
+  return removeSensitiveFields(vehicle as Record<string, unknown>) as SanitizedVehicle<T>;
 }
 

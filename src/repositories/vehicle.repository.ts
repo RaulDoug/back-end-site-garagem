@@ -471,6 +471,39 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
     return detailedList;
   }
 
+  async incrementBatchViews(views: Map<string, number>): Promise<void> {
+    if (views.size === 0 ) return;
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      for (const [vehicleId, count] of views) {
+        await client.query(
+          'UPDATE vehicles SET total_views = total_views + $1 WHERE id = $2;',
+          [count, vehicleId]
+        );
+
+        const metricsQuery = `
+          INSERT INTO vehicle_metrics (vehicle_id, recorded_date, views_count)
+          VALUES ($1, CURRENT_DATE, $2)
+          ON CONFLICT (vehicle_id, recorded_date)
+          DO UPDATE SET views_count = vehicle_metrics.views_count + $2;
+        `;
+        await client.query(metricsQuery, [vehicleId, count]);
+      }
+
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async incrementViewMetrics(id: string): Promise<void> {
     const client = await pool.connect();
     try {

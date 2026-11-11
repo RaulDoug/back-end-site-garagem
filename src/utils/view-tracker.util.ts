@@ -4,6 +4,7 @@
  */
 export class ViewTracker {
   private cache = new Map<string, number>();
+  private pendingViews = new Map<string, number>();
   private readonly ttlMs: number;
 
   constructor(ttlMinutes = 30) {
@@ -33,8 +34,39 @@ export class ViewTracker {
     return true;
   }
 
+  trackView(vehicleId: string, ip: string, userAgent: string): boolean {
+    const shouldIncrement = this.shouldIncrement(vehicleId, ip, userAgent);
+
+    if (!shouldIncrement) return false;
+
+    let currentQuantity = this.pendingViews.get(vehicleId);
+
+    if (!currentQuantity) {
+      currentQuantity = 0;
+    }
+
+    const newQuantity = currentQuantity + 1;
+
+    this.pendingViews.set(vehicleId, newQuantity);
+
+    return true;
+  }
+
+  drainPending(): Map<string, number> {
+    const copyMap = new Map(this.pendingViews);
+
+    this.pendingViews.clear();
+
+    return copyMap;
+  }
+
+  getPendingViews(vehicleId: string): number {
+    return this.pendingViews.get(vehicleId) || 0;
+  }
+
   clear(): void {
     this.cache.clear();
+    this.pendingViews.clear();
   }
 }
 

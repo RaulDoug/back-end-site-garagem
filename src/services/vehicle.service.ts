@@ -14,15 +14,20 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
     super(repository);
   }
 
+  private normalizePlate(plate: string): string {
+    return plate.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  }
+
   override async create(
     data: CreateVehicleData & { feature_ids?: string[] },
     featureIdsOverride?: string[]
   ): Promise<Vehicle> {
     const featureIds = featureIdsOverride ?? data.feature_ids ?? [];
-    const cleanData = { ...data };
-    delete cleanData.feature_ids;
+    const { feature_ids, ...cleanData } = data; //eslint-disable-line
 
     if (cleanData.full_license_plate) {
+      cleanData.full_license_plate = this.normalizePlate(cleanData.full_license_plate);
+
       const existing = await this.repository.findByPlate(cleanData.full_license_plate);
       if (existing) {
         throw new AppError('Placa já cadastrada para outro veículo ativo', 409);
@@ -59,6 +64,8 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
     }
 
     if (cleanData.full_license_plate) {
+      cleanData.full_license_plate = this.normalizePlate(cleanData.full_license_plate as string);
+
       const existing = await this.repository.findByPlate(cleanData.full_license_plate);
       if (existing && existing.id !== id) {
         throw new AppError('Placa já cadastrada para outro veículo ativo', 409);
@@ -152,14 +159,12 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
       throw new NotFoundError('Veículo não encontrado');
     }
 
-    let currentDetailed = detailed;
-    if (viewTracker.shouldIncrement(id, ip, userAgent)) {
-      await this.repository.incrementViewMetrics(id);
-      currentDetailed = {
-        ...detailed,
-        total_views: (detailed.total_views || 0) + 1,
-      };
-    }
+    viewTracker.trackView(id, ip, userAgent);
+
+    const currentDetailed = {
+      ...detailed,
+      total_views: (detailed.total_views || 0) + viewTracker.getPendingViews(id),
+    };
 
     return sanitizeVehicleForRole(currentDetailed, 'PUBLICO');
   }
@@ -170,12 +175,22 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
       throw new NotFoundError('Veículo não encontrado');
     }
 
-    return sanitizeVehicleForRole(detailed, role);
+    const currentDetailed = {
+      ...detailed,
+      total_views: (detailed.total_views || 0) + viewTracker.getPendingViews(id),
+    };
+    
+    return sanitizeVehicleForRole(currentDetailed, role);
   }
 
   async comparePublic(ids: string[]): Promise<Record<string, unknown>[]> {
     if (!Array.isArray(ids) || ids.length < 2 || ids.length > 3) {
       throw new BadRequestError('O comparador exige no mínimo 2 e no máximo 3 veículos');
+    }
+
+    const hasDuplicateIds = new Set(ids).size < ids.length;
+    if (hasDuplicateIds) { 
+      throw new BadRequestError('Não é possível comparar o mesmo veículo. Seleciona veículos diferentes para comparar');
     }
 
     const vehicles = await this.repository.findByIds(ids, { publicOnly: true });
