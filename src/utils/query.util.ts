@@ -23,7 +23,7 @@ export function buildUpdateQuery(
   tableName: string,
   data: Record<string, unknown>,
   id: string,
-  options?: { softDelete?: boolean }
+  options?: { softDelete?: boolean; tenantId?: string }
 ): { query: string; values: unknown[] } {
   assertValidIdentifier(tableName);
   const columns = Object.keys(data);
@@ -32,9 +32,17 @@ export function buildUpdateQuery(
   const setClause = columns.map((column, index) => `${column} = $${index + 1}`).join(', ');
   const useSoftDelete = options?.softDelete !== false;
   const softDeleteClause = useSoftDelete ? ' AND deleted_at IS NULL' : '';
-  const query = `UPDATE ${tableName} SET ${setClause} WHERE id = $${columns.length + 1}${softDeleteClause} RETURNING *;`;
+  const finalValues: unknown[] = [...values, id];
+  let tenantClause = '';
 
-  return { query, values: [...values, id] };
+  if (options?.tenantId) {
+    tenantClause = ` AND tenant_id = $${finalValues.length + 1}`;
+    finalValues.push(options.tenantId);
+  }
+
+  const query = `UPDATE ${tableName} SET ${setClause} WHERE id = $${columns.length + 1}${tenantClause}${softDeleteClause} RETURNING *;`;
+
+  return { query, values: finalValues };
 }
 
 export function buildFindQuery(

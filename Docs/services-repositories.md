@@ -6,48 +6,89 @@ Esta documentação detalha a arquitetura da camada de negócio (`services`) e d
 
 ## Sumário
 1. [Base / Camada Genérica (CRUD)](#módulo-base--infraestrutura-genérica)
-2. [Usuários (`users`)](#módulo-usuários-users)
-3. [Lojas (`stores`)](#módulo-lojas-stores)
-4. [Marcas (`brands`)](#módulo-marcas-brands)
-5. [Opcionais (`features`)](#módulo-opcionais-features)
-6. [Modelos (`models`)](#módulo-modelos-models)
-7. [Veículos (`vehicles`)](#módulo-veículos-vehicles)
+2. [Empresas / Tenants (`tenants`)](#módulo-empresas--tenants-tenants)
+3. [Usuários (`users`)](#módulo-usuários-users)
+4. [Lojas (`stores`)](#módulo-lojas-stores)
+5. [Marcas (`brands`)](#módulo-marcas-brands)
+6. [Opcionais (`features`)](#módulo-opcionais-features)
+7. [Modelos (`models`)](#módulo-modelos-models)
+8. [Veículos (`vehicles`)](#módulo-veículos-vehicles)
 
 ---
 
 # Módulo: Base / Infraestrutura Genérica
 
-Classes abstratas/genéricas parametrizadas com Generics TypeScript (`T extends QueryResultRow, C = Record<string, unknown>`), fornecendo operações CRUD reutilizáveis.
+Classes abstratas/genéricas parametrizadas com Generics TypeScript (`T extends QueryResultRow, C = Record<string, unknown>`), fornecendo operações CRUD reutilizáveis com suporte nativo a isolamento multi-tenant (`tenantId?: string`).
 
 ---
 
 ### 1. Camada de Serviço (`BaseService<T, C>`)
 
-#### `findById(id: string): Promise<T>`
-- **Responsabilidade:** Recupera um registro pelo seu identificador único UUID, garantindo que o registro exista no banco.
+#### `findById(id: string, tenantId?: string): Promise<T>`
+- **Responsabilidade:** Recupera um registro pelo seu identificador único UUID, garantindo que o registro exista no banco e pertença ao `tenantId` (quando fornecido).
 - **Parâmetros:**
 
 | Parâmetro | Tipo | Opcional | Descrição |
 | :--- | :--- | :--- | :--- |
 | `id` | `string` | Não | UUID identificador do registro |
+| `tenantId` | `string` | Sim | UUID da empresa para isolamento multi-tenant |
 
 - **Regras de Negócio & Fluxos:**
-  1. Invoca `repository.findById(id)`.
+  1. Invoca `repository.findById(id, tenantId)`.
   2. Verifica se o resultado é nulo. Caso seja, dispara exceção de não encontrado.
 - **Exceções Disparadas (`AppError`):**
   - `404 Not Found` - `NotFoundError ('Registro não encontrado')`: Disparado quando `result === null`.
 - **Cenários Testados (Vitest):**
   - Retorna o registro correspondente quando existente.
-  - Lança `NotFoundError` quando o ID informado não existir ou estiver com soft-delete.
-- **Chamadas de Persistência:** `repository.findById(id)`
+  - Lança `NotFoundError` quando o ID informado não existir ou pertencer a outro tenant.
+- **Chamadas de Persistência:** `repository.findById(id, tenantId)`
 
-#### `find(filters: FindData): Promise<T[]>`
-- **Responsabilidade:** Consulta registros aplicando filtros dinâmicos de comparação, busca parcial e soft delete.
-- **Parâmetros:**
+#### `find(filters: FindData, tenantId?: string): Promise<T[]>`
+- **Responsabilidade:** Consulta registros aplicando filtros dinâmicos de comparação, busca parcial e soft delete, injetando obrigatoriamente `tenant_id = :tenantId` quando o escopo multi-tenant é fornecido.
 
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `filters` | `FindData` | Não | Objeto contendo array de `filters` (`field`, `value`, `operator`) e flag `includeDeleted` |
+#### `update(id: string, data: Partial<C>, tenantId?: string): Promise<T>`
+- **Responsabilidade:** Atualiza campos de um registro existente garantindo que o registro pertença ao `tenantId` informado.
+
+#### `delete(id: string, tenantId?: string): Promise<boolean>`
+- **Responsabilidade:** Realiza a exclusão (soft-delete via `deleted_at = NOW()` ou hard-delete dependendo da entidade) restrita ao `tenantId`.
+
+---
+
+# Módulo: Empresas / Tenants (`tenants`)
+
+Gestão da entidade raiz da arquitetura Multi-Tenant hierárquica e seu fluxo de Onboarding transacional.
+
+---
+
+### 1. Camada de Repositório (`TenantRepository`)
+
+#### `onboardTenant(tenantData, storeData, adminData): Promise<OnboardResult>`
+- **Responsabilidade:** Executa transação ACID no PostgreSQL (`BEGIN ... COMMIT / ROLLBACK`) criando em uma única operação atômica:
+  1. Registro na tabela `tenants`.
+  2. Registro na tabela `stores` com `tenant_id = tenant.id`.
+  3. Registro na tabela `users` com `tenant_id = tenant.id`, `store_id = store.id` e `role = 'ADMIN'`.
+
+#### `findByCNPJ(cnpj: string): Promise<Tenant | null>`
+- **Responsabilidade:** Localiza tenant pelo CNPJ para verificação de unicidade cadastral global.
+
+#### `findById(id: string): Promise<Tenant | null>`
+- **Responsabilidade:** Recupera os dados cadastrais do tenant pelo UUID.
+
+#### `update(id: string, data: Partial<CreateTenantData>): Promise<Tenant | null>`
+- **Responsabilidade:** Atualiza campos cadastrais da empresa (`corporate_name`, `trade_name`, `cnpj`, `is_active`).
+
+---
+
+### 2. Camada de Serviço (`TenantService`)
+
+#### `onboard(data: OnboardTenantInput): Promise<{ tenant, store, admin, token }>`
+- **Regras de Negócio & Fluxos:**
+  1. Valida se o CNPJ da empresa já está cadastrado (`tenantRepository.findByCNPJ`) -> se existir, lança `409 Conflict`.
+  2. Valida se o CNPJ da loja matriz já está em uso (`storeRepository.findByCNPJ`) -> se existir, lança `409 Conflict`.
+  3. Gera hash seguro da senha com `bcrypt.hash(data.admin.password, 10)`.
+  4. Executa `tenantRepository.onboardTenant(...)`.
+  5. Gera token JWT funcional contendo `{ id, email, role: 'ADMIN', tenantId: tenant.id, storeId: store.id }`.
+  6. Retorna `{ tenant, store, admin, token }`.
 
 - **Regras de Negócio & Fluxos:**
   1. Repassa os filtros higienizados para a camada de persistência.

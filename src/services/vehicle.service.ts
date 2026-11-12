@@ -5,12 +5,26 @@ import {
   type CreateVehicleData,
   type FindCatalogFilters,
 } from '#repositories/vehicle.repository.js';
+import { StoreRepository } from '#repositories/store.repository.js';
+import { ModelRepository } from '#repositories/model.repository.js';
+import { FeatureRepository } from '#repositories/feature.repository.js';
 import { sanitizeVehicleForRole } from '#utils/vehicle-sanitizer.util.js';
 import { viewTracker } from '#utils/view-tracker.util.js';
 import { NotFoundError, BadRequestError, AppError } from '#src/errors/app.error.js';
 
+export interface TenantExecutionContext {
+  tenantId: string;
+  userStoreId?: string | null;
+  filterStoreId?: string | null;
+}
+
 export default class VehicleService extends BaseService<Vehicle, CreateVehicleData> {
-  constructor(protected override repository = new VehicleRepository()) {
+  constructor(
+    protected override repository: VehicleRepository = new VehicleRepository(),
+    private readonly storeRepository: StoreRepository = new StoreRepository(),
+    private readonly modelRepository: ModelRepository = new ModelRepository(),
+    private readonly featureRepository: FeatureRepository = new FeatureRepository()
+  ) {
     super(repository);
   }
 
@@ -20,17 +34,45 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
 
   override async create(
     data: CreateVehicleData & { feature_ids?: string[] },
-    featureIdsOverride?: string[]
+    featureIdsOverride?: string[],
+    ctx?: TenantExecutionContext
   ): Promise<Vehicle> {
+    const tenantId = ctx?.tenantId || (data as { tenant_id?: string }).tenant_id;
+    if (!tenantId) {
+      throw new BadRequestError('Tenant não identificado');
+    }
+
+    if (ctx?.userStoreId && data.store_id !== ctx.userStoreId) {
+      throw new AppError('Usuário só tem permissão para operar veículos da sua própria filial', 403);
+    }
+
+    const store = await this.storeRepository.findByIdAndTenant(data.store_id, tenantId);
+    if (!store) {
+      throw new AppError('Loja informada não encontrada nesta empresa', 404);
+    }
+
+    const model = await this.modelRepository.findById(data.model_id, tenantId);
+    if (!model) {
+      throw new AppError('Modelo informado não encontrado nesta empresa', 404);
+    }
+
     const featureIds = featureIdsOverride ?? data.feature_ids ?? [];
     const { feature_ids, ...cleanData } = data; //eslint-disable-line
 
     if (cleanData.full_license_plate) {
       cleanData.full_license_plate = this.normalizePlate(cleanData.full_license_plate);
 
-      const existing = await this.repository.findByPlate(cleanData.full_license_plate);
+      const existing = await this.repository.findByPlate(cleanData.full_license_plate, tenantId);
       if (existing) {
         throw new AppError('Placa já cadastrada para outro veículo ativo', 409);
+      }
+    }
+
+    if (featureIds.length > 0) {
+      const uniqueIds = Array.from(new Set(featureIds));
+      const foundFeatures = await this.featureRepository.findByIdsForTenant(uniqueIds, tenantId);
+      if (foundFeatures.length !== uniqueIds.length) {
+        throw new AppError('Um ou mais opcionais informados não existem ou não pertencem à empresa', 404);
       }
     }
 
@@ -40,6 +82,7 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
 
     const payload: CreateVehicleData = {
       ...cleanData,
+      tenant_id: tenantId,
       plate_last_digit: isNaN(lastDigit) ? 0 : lastDigit,
     };
 
@@ -53,9 +96,22 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
   override async update(
     id: string,
     data: Partial<CreateVehicleData> & { feature_ids?: string[] },
-    featureIdsOverride?: string[]
+    featureIdsOverride?: unknown,
+    ctxParam?: unknown
   ): Promise<Vehicle> {
-    const featureIds = featureIdsOverride ?? data.feature_ids;
+    const featureIds = Array.isArray(featureIdsOverride)
+      ? (featureIdsOverride as string[])
+      : data.feature_ids;
+    const ctx = (ctxParam ||
+      (typeof featureIdsOverride === 'object' && !Array.isArray(featureIdsOverride)
+        ? featureIdsOverride
+        : undefined)) as TenantExecutionContext | undefined;
+
+    const tenantId = ctx?.tenantId || (data as { tenant_id?: string }).tenant_id;
+    if (!tenantId) {
+      throw new BadRequestError('Tenant não identificado');
+    }
+
     const cleanData = { ...data };
     delete cleanData.feature_ids;
 
@@ -63,10 +119,38 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
       throw new BadRequestError('Nenhum dado informado para atualização');
     }
 
+    const currentVehicle = await this.repository.findById(id, tenantId);
+    if (!currentVehicle) {
+      throw new NotFoundError('Veículo não encontrado');
+    }
+
+    if (ctx?.userStoreId && currentVehicle.store_id !== ctx.userStoreId) {
+      throw new AppError('Usuário só tem permissão para operar veículos da sua própria filial', 403);
+    }
+
+    if (cleanData.store_id) {
+      if (ctx?.userStoreId && cleanData.store_id !== ctx.userStoreId) {
+        throw new AppError('Usuário só tem permissão para operar veículos da sua própria filial', 403);
+      }
+      if (cleanData.store_id !== currentVehicle.store_id) {
+        const store = await this.storeRepository.findByIdAndTenant(cleanData.store_id, tenantId);
+        if (!store) {
+          throw new AppError('Loja informada não encontrada nesta empresa', 404);
+        }
+      }
+    }
+
+    if (cleanData.model_id && cleanData.model_id !== currentVehicle.model_id) {
+      const model = await this.modelRepository.findById(cleanData.model_id, tenantId);
+      if (!model) {
+        throw new AppError('Modelo informado não encontrado nesta empresa', 404);
+      }
+    }
+
     if (cleanData.full_license_plate) {
       cleanData.full_license_plate = this.normalizePlate(cleanData.full_license_plate as string);
 
-      const existing = await this.repository.findByPlate(cleanData.full_license_plate);
+      const existing = await this.repository.findByPlate(cleanData.full_license_plate, tenantId);
       if (existing && existing.id !== id) {
         throw new AppError('Placa já cadastrada para outro veículo ativo', 409);
       }
@@ -74,9 +158,12 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
       cleanData.plate_last_digit = isNaN(lastDigit) ? 0 : lastDigit;
     }
 
-    const currentVehicle = await this.repository.findById(id);
-    if (!currentVehicle) {
-      throw new NotFoundError('Veículo não encontrado');
+    if (featureIds && featureIds.length > 0) {
+      const uniqueIds = Array.from(new Set(featureIds));
+      const foundFeatures = await this.featureRepository.findByIdsForTenant(uniqueIds, tenantId);
+      if (foundFeatures.length !== uniqueIds.length) {
+        throw new AppError('Um ou mais opcionais informados não existem ou não pertencem à empresa', 404);
+      }
     }
 
     const merged = { ...currentVehicle, ...cleanData };
@@ -109,20 +196,55 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
       }
     }
 
-    const updated = await this.repository.updateWithFeatures(id, cleanData, featureIds);
+    const updated = await this.repository.updateWithFeatures(id, cleanData, featureIds, tenantId);
     if (!updated) {
       throw new NotFoundError('Veículo não encontrado');
     }
     return updated;
   }
 
-  async findPublic(query: Record<string, unknown>): Promise<{
+  override async delete(id: string, tenantIdOrCtx?: unknown): Promise<Vehicle> {
+    const tenantId =
+      typeof tenantIdOrCtx === 'string'
+        ? tenantIdOrCtx
+        : (tenantIdOrCtx as TenantExecutionContext)?.tenantId;
+
+    if (!tenantId) {
+      throw new BadRequestError('Tenant não identificado');
+    }
+
+    const currentVehicle = await this.repository.findById(id, tenantId);
+    if (!currentVehicle) {
+      throw new NotFoundError('Veículo não encontrado');
+    }
+
+    const userStoreId = (tenantIdOrCtx as TenantExecutionContext)?.userStoreId;
+    if (userStoreId && currentVehicle.store_id !== userStoreId) {
+      throw new AppError('Usuário só tem permissão para operar veículos da sua própria filial', 403);
+    }
+
+    const deleted = await this.repository.delete(id, tenantId);
+    if (!deleted) {
+      throw new NotFoundError('Veículo não encontrado');
+    }
+    return deleted;
+  }
+
+  async findPublic(
+    query: Record<string, unknown>,
+    ctx: TenantExecutionContext
+  ): Promise<{
     items: Record<string, unknown>[];
     total: number;
     page: number;
     limit: number;
   }> {
     const filters = this.parseQueryFilters(query, true);
+    filters.tenant_id = ctx.tenantId;
+    if (ctx.filterStoreId) {
+      filters.store_id = ctx.filterStoreId;
+    }
+
     const result = await this.repository.findCatalog(filters);
 
     return {
@@ -133,7 +255,8 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
 
   async findAdmin(
     query: Record<string, unknown>,
-    role: string
+    role: string,
+    ctx: TenantExecutionContext
   ): Promise<{
     items: Record<string, unknown>[];
     total: number;
@@ -141,6 +264,14 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
     limit: number;
   }> {
     const filters = this.parseQueryFilters(query, false);
+    filters.tenant_id = ctx.tenantId;
+
+    if (ctx.userStoreId) {
+      filters.store_id = ctx.userStoreId;
+    } else if (ctx.filterStoreId) {
+      filters.store_id = ctx.filterStoreId;
+    }
+
     const result = await this.repository.findCatalog(filters);
 
     return {
@@ -152,9 +283,14 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
   async findByIdPublic(
     id: string,
     ip = '127.0.0.1',
-    userAgent = 'unknown'
+    userAgent = 'unknown',
+    ctx?: TenantExecutionContext
   ): Promise<Record<string, unknown>> {
-    const detailed = await this.repository.findDetailedById(id, { publicOnly: true });
+    const detailed = await this.repository.findDetailedById(id, {
+      publicOnly: true,
+      tenant_id: ctx?.tenantId,
+      store_id: ctx?.filterStoreId ?? undefined,
+    });
     if (!detailed) {
       throw new NotFoundError('Veículo não encontrado');
     }
@@ -169,8 +305,16 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
     return sanitizeVehicleForRole(currentDetailed, 'PUBLICO');
   }
 
-  async findByIdAdmin(id: string, role: string): Promise<Record<string, unknown>> {
-    const detailed = await this.repository.findDetailedById(id, { publicOnly: false });
+  async findByIdAdmin(
+    id: string,
+    role: string,
+    ctx: TenantExecutionContext
+  ): Promise<Record<string, unknown>> {
+    const detailed = await this.repository.findDetailedById(id, {
+      publicOnly: false,
+      tenant_id: ctx.tenantId,
+      store_id: ctx.userStoreId ?? undefined,
+    });
     if (!detailed) {
       throw new NotFoundError('Veículo não encontrado');
     }
@@ -179,22 +323,46 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
       ...detailed,
       total_views: (detailed.total_views || 0) + viewTracker.getPendingViews(id),
     };
-    
+
     return sanitizeVehicleForRole(currentDetailed, role);
   }
 
-  async comparePublic(ids: string[]): Promise<Record<string, unknown>[]> {
+  async comparePublic(
+    ids: string[],
+    ctx?: TenantExecutionContext
+  ): Promise<Record<string, unknown>[]> {
     if (!Array.isArray(ids) || ids.length < 2 || ids.length > 3) {
       throw new BadRequestError('O comparador exige no mínimo 2 e no máximo 3 veículos');
     }
 
     const hasDuplicateIds = new Set(ids).size < ids.length;
-    if (hasDuplicateIds) { 
+    if (hasDuplicateIds) {
       throw new BadRequestError('Não é possível comparar o mesmo veículo. Seleciona veículos diferentes para comparar');
     }
 
-    const vehicles = await this.repository.findByIds(ids, { publicOnly: true });
+    const vehicles = await this.repository.findByIds(ids, {
+      publicOnly: true,
+      tenant_id: ctx?.tenantId,
+      store_id: ctx?.filterStoreId ?? undefined,
+    });
     return vehicles.map((v) => sanitizeVehicleForRole(v, 'PUBLICO'));
+  }
+
+  async updateInspectionReport(
+    id: string,
+    reportUrl: string | null,
+    ctx: TenantExecutionContext
+  ): Promise<Vehicle | null> {
+    const currentVehicle = await this.repository.findById(id, ctx.tenantId);
+    if (!currentVehicle) {
+      throw new NotFoundError('Veículo não encontrado');
+    }
+
+    if (ctx.userStoreId && currentVehicle.store_id !== ctx.userStoreId) {
+      throw new AppError('Usuário só tem permissão para gerenciar mídias de veículos da sua própria filial', 403);
+    }
+
+    return await this.repository.updateInspectionReport(id, reportUrl, ctx.tenantId);
   }
 
   private parseQueryFilters(query: Record<string, unknown>, publicOnly: boolean): FindCatalogFilters {
@@ -206,6 +374,7 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
           : undefined;
 
     return {
+      store_id: query.store_id as string | undefined,
       page: query.page ? Number(query.page) : undefined,
       limit: query.limit ? Number(query.limit) : undefined,
       category: query.category as string | undefined,

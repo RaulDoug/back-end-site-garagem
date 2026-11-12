@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import UserService from '#services/user.service.js';
 import type { UpdateUserBody } from '#schemas/user.schema.js';
 import {
+  TENANT_ID,
   USER_EMAIL,
   USER_ID,
   buildUser,
@@ -35,12 +36,12 @@ describe('UserService.update', () => {
     mockUserRepository.findById.mockResolvedValue(buildUser());
     mockUserRepository.update.mockResolvedValue(buildUser({ ...updateData }));
 
-    const resultado = await userService.update(USER_ID, updateData);
+    const resultado = await userService.update(USER_ID, updateData, TENANT_ID);
 
     expect(mockUserRepository.findById).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID);
+    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID, TENANT_ID);
     expect(mockUserRepository.update).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.update).toHaveBeenCalledWith(USER_ID, updateData);
+    expect(mockUserRepository.update).toHaveBeenCalledWith(USER_ID, updateData, TENANT_ID);
     expect(resultado).toEqual({ ...safeUser, ...updateData });
     expect(resultado).not.toHaveProperty('password_hash');
   });
@@ -49,11 +50,11 @@ describe('UserService.update', () => {
     const updateData: UpdateUserBody = { name: 'Raul Ferreira Junior' };
     mockUserRepository.findById.mockResolvedValue(null);
 
-    await expect(userService.update(USER_ID, updateData)).rejects.toThrow(
+    await expect(userService.update(USER_ID, updateData, TENANT_ID)).rejects.toThrow(
       'Usuário inexistente.'
     );
 
-    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID);
+    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID, TENANT_ID);
     expect(mockUserRepository.update).not.toHaveBeenCalled();
   });
 
@@ -62,13 +63,13 @@ describe('UserService.update', () => {
     mockUserRepository.findById.mockResolvedValue(buildUser());
     mockUserRepository.update.mockResolvedValue(null);
 
-    await expect(userService.update(USER_ID, emptyUpdate)).rejects.toThrow(
+    await expect(userService.update(USER_ID, emptyUpdate, TENANT_ID)).rejects.toThrow(
       'Nenhum campo informado para atualização.'
     );
 
-    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID);
+    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID, TENANT_ID);
     expect(mockUserRepository.update).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.update).toHaveBeenCalledWith(USER_ID, {});
+    expect(mockUserRepository.update).toHaveBeenCalledWith(USER_ID, {}, TENANT_ID);
   });
 
   it('deve remover password_hash do usuário atualizado', async () => {
@@ -78,7 +79,7 @@ describe('UserService.update', () => {
       buildUser({ name: 'Raul Ferreira Junior' })
     );
 
-    const resultado = await userService.update(USER_ID, updateData);
+    const resultado = await userService.update(USER_ID, updateData, TENANT_ID);
 
     expect(resultado).not.toHaveProperty('password_hash');
     expect(Object.keys(resultado)).not.toContain('password_hash');

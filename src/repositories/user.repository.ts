@@ -3,6 +3,8 @@ import BaseRepository from '#repositories/base.repository.js';
 
 export interface User {
   id: string;
+  tenant_id: string;
+  store_id: string | null;
   name: string;
   email: string;
   password_hash: string;
@@ -15,34 +17,62 @@ export interface User {
 }
 
 export interface CreateUserData {
+  tenant_id?: string;
+  store_id?: string | null;
   name: string;
   email: string;
   password_hash: string;
   phone: string;
   role?: string;
-  commission_rates?: number;
+  commission_rates?: number | null;
 }
 
 export class UserRepository extends BaseRepository<User, CreateUserData> {
+  protected override columns = [
+    'id',
+    'tenant_id',
+    'store_id',
+    'name',
+    'email',
+    'password_hash',
+    'phone',
+    'role',
+    'commission_rates',
+    'is_active',
+    'deleted_at',
+    'created_at',
+  ];
+
   constructor() {
     super('users');
   }
 
-  async findByEmail(email: string): Promise<User | null> {
-    const query = 'SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL LIMIT 1;';
-    const result = await pool.query<User>(query, [email]);
+  async findByEmail(email: string, tenantId?: string): Promise<User | null> {
+    let query: string;
+    let values: unknown[];
 
+    if (tenantId) {
+      query = 'SELECT * FROM users WHERE tenant_id = $1 AND LOWER(email) = LOWER($2) AND deleted_at IS NULL LIMIT 1;';
+      values = [tenantId, email];
+    } else {
+      query = 'SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1;';
+      values = [email];
+    }
+
+    const result = await pool.query<User>(query, values);
     return result.rows[0] || null;
   }
 
-  async create(data: CreateUserData): Promise<User> {
+  override async create(data: CreateUserData): Promise<User> {
     const query = `
-      INSERT INTO users (name, email, password_hash, phone, role, commission_rates)
-      VALUES ($1, $2, $3, $4, COALESCE($5, 'VENDEDOR')::users_roles_types, $6)
+      INSERT INTO users (tenant_id, store_id, name, email, password_hash, phone, role, commission_rates)
+      VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'VENDEDOR')::users_roles_types, $8)
       RETURNING *;
     `;
 
     const values = [
+      data.tenant_id,
+      data.store_id ?? null,
       data.name,
       data.email,
       data.password_hash,
@@ -55,6 +85,5 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
     return result.rows[0];
   }
 }
-
 
 export const userRepository = new UserRepository();

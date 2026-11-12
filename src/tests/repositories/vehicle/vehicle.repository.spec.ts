@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import {
+  afterAll,
   afterEach,
   beforeAll,
   describe,
@@ -28,13 +29,28 @@ const createdStoreIds = new Set<string>();
 const createdBrandIds = new Set<string>();
 const createdModelIds = new Set<string>();
 const createdFeatureIds = new Set<string>();
+const createdTenantIds = new Set<string>();
 let sequence = 0;
 
+let testTenantId: string;
 let testUserId: string;
 
-const createHelperStore = async () => {
+const createRepositoryTenant = async (name: string) => {
+  const cnpj = `${String(Math.floor(1000000000 + Math.random() * 9000000000)).slice(0, 10)}${Math.floor(1000 + Math.random() * 9000)}`.slice(0, 14);
+  const res = await pool.query(
+    `INSERT INTO tenants (corporate_name, trade_name, cnpj, is_active)
+     VALUES ($1, $2, $3, true) RETURNING id`,
+    [`${name} Corp`, name, cnpj]
+  );
+  const id = res.rows[0].id;
+  createdTenantIds.add(id);
+  return id;
+};
+
+const createHelperStore = async (tenantId = testTenantId) => {
   const cnpj = `${RUN_ID.replace(/\D/g, '').padEnd(10, '0').slice(0, 10)}${String(++sequence).padStart(4, '0')}`.slice(0, 14);
   const store = await storeRepository.create({
+    tenant_id: tenantId,
     name: `Loja_Repo_${RUN_ID}_${sequence}`,
     phone: '(37) 98888-7777',
     cnpj,
@@ -49,13 +65,15 @@ const createHelperStore = async () => {
   return store;
 };
 
-const createHelperBrandAndModel = async () => {
+const createHelperBrandAndModel = async (tenantId = testTenantId) => {
   const brand = await brandRepository.create({
+    tenant_id: tenantId,
     name: `Marca_${RUN_ID}_${++sequence}`,
   });
   createdBrandIds.add(brand.id);
 
   const model = await modelRepository.create({
+    tenant_id: tenantId,
     brand_id: brand.id,
     name: `Modelo_${RUN_ID}_${sequence}`,
   });
@@ -64,8 +82,9 @@ const createHelperBrandAndModel = async () => {
   return { brand, model };
 };
 
-const createHelperFeature = async (name: string) => {
+const createHelperFeature = async (name: string, tenantId = testTenantId) => {
   const feature = await featureRepository.create({
+    tenant_id: tenantId,
     name: `${name}_${RUN_ID}_${++sequence}`,
   });
   createdFeatureIds.add(feature.id);
@@ -87,14 +106,17 @@ const uniquePlate = () => {
 const makeVehicleData = (
   storeId: string,
   modelId: string,
-  overrides: Partial<CreateVehicleData> = {}
+  overrides: Partial<CreateVehicleData> = {},
+  tenantId = testTenantId,
+  userId = testUserId,
 ): CreateVehicleData => {
   const plate = overrides.full_license_plate || uniquePlate();
   const lastDigit = Number(plate.slice(-1)) || 0;
 
   return {
+    tenant_id: tenantId,
     store_id: storeId,
-    registered_by_user_id: testUserId,
+    registered_by_user_id: userId,
     model_id: modelId,
     sale_type: 'PROPRIO',
     title: `Veículo Teste ${RUN_ID} ${++sequence}`,
@@ -129,19 +151,26 @@ describe('VehicleRepository - integração com PostgreSQL', () => {
       );
     }
 
+    testTenantId = await createRepositoryTenant('Tenant Veiculos Repo');
     testUserId = '4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b';
     await pool.query(
-      `INSERT INTO users (id, name, email, password_hash, phone, role, is_active)
-       VALUES ($1, $2, $3, $4, $5, 'ADMIN', true)
-       ON CONFLICT (id) DO UPDATE SET deleted_at = NULL, is_active = TRUE;`,
+      `INSERT INTO users (id, tenant_id, name, email, password_hash, phone, role, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, 'ADMIN', true)
+       ON CONFLICT (id) DO UPDATE SET deleted_at = NULL, is_active = TRUE, tenant_id = EXCLUDED.tenant_id;`,
       [
         testUserId,
+        testTenantId,
         'Admin Repo Veiculo',
         'admin.vehicle.repo@teste.com',
         '$2b$10$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
         '(37) 99999-0000',
       ]
     );
+  });
+
+  afterAll(async () => {
+    await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
+    await pool.query('DELETE FROM tenants WHERE id = $1', [testTenantId]);
   });
 
   afterEach(async () => {
@@ -174,6 +203,12 @@ describe('VehicleRepository - integração com PostgreSQL', () => {
         Array.from(createdStoreIds),
       ]);
       createdStoreIds.clear();
+    }
+    const extraTenants = Array.from(createdTenantIds).filter(id => id !== testTenantId);
+    if (extraTenants.length > 0) {
+      await pool.query('DELETE FROM users WHERE tenant_id = ANY($1::uuid[])', [extraTenants]);
+      await pool.query('DELETE FROM tenants WHERE id = ANY($1::uuid[])', [extraTenants]);
+      extraTenants.forEach(id => createdTenantIds.delete(id));
     }
   });
 
@@ -541,6 +576,101 @@ describe('VehicleRepository - integração com PostgreSQL', () => {
 
       const found = await vehicleRepository.findById(vehicle.id);
       expect(found).toBeNull();
+    });
+  });
+
+  describe('Multi-tenant & Multi-store Isolation', () => {
+    it('deve permitir a mesma placa em tenants diferentes, mas bloquear no mesmo tenant', async () => {
+      const tenantB = await createRepositoryTenant('Tenant Veiculos B');
+      const storeA = await createHelperStore(testTenantId);
+      const storeB = await createHelperStore(tenantB);
+      const { model: modelA } = await createHelperBrandAndModel(testTenantId);
+      const { model: modelB } = await createHelperBrandAndModel(tenantB);
+
+      const plate = uniquePlate();
+
+      // Veículo no Tenant A
+      const carA = await vehicleRepository.createWithFeatures(
+        makeVehicleData(storeA.id, modelA.id, { full_license_plate: plate }, testTenantId),
+        []
+      );
+      createdVehicleIds.add(carA.id);
+
+      // Veículo no Tenant B com a MESMA placa (deve ser permitido)
+      const carB = await vehicleRepository.createWithFeatures(
+        makeVehicleData(storeB.id, modelB.id, { full_license_plate: plate }, tenantB),
+        []
+      );
+      createdVehicleIds.add(carB.id);
+
+      expect(carA.id).toBeDefined();
+      expect(carB.id).toBeDefined();
+
+      // findByPlate escopado por tenant
+      const foundA = await vehicleRepository.findByPlate(plate, testTenantId);
+      expect(foundA?.id).toBe(carA.id);
+
+      const foundB = await vehicleRepository.findByPlate(plate, tenantB);
+      expect(foundB?.id).toBe(carB.id);
+
+      // Tentativa de duplicar placa no mesmo Tenant A deve lançar erro 23505
+      await expect(
+        vehicleRepository.createWithFeatures(
+          makeVehicleData(storeA.id, modelA.id, { full_license_plate: plate }, testTenantId),
+          []
+        )
+      ).rejects.toMatchObject({
+        code: '23505',
+      });
+    });
+
+    it('deve filtrar catálogo e detalhamento respeitando tenant_id e store_id', async () => {
+      const tenantB = await createRepositoryTenant('Tenant Veiculos Catalog B');
+      const storeA1 = await createHelperStore(testTenantId);
+      const storeA2 = await createHelperStore(testTenantId);
+      const storeB = await createHelperStore(tenantB);
+
+      const { model: modelA } = await createHelperBrandAndModel(testTenantId);
+      const { model: modelB } = await createHelperBrandAndModel(tenantB);
+
+      const carA1 = await vehicleRepository.createWithFeatures(
+        makeVehicleData(storeA1.id, modelA.id, {}, testTenantId),
+        []
+      );
+      const carA2 = await vehicleRepository.createWithFeatures(
+        makeVehicleData(storeA2.id, modelA.id, {}, testTenantId),
+        []
+      );
+      const carB = await vehicleRepository.createWithFeatures(
+        makeVehicleData(storeB.id, modelB.id, {}, tenantB),
+        []
+      );
+      createdVehicleIds.add(carA1.id);
+      createdVehicleIds.add(carA2.id);
+      createdVehicleIds.add(carB.id);
+
+      // Catálogo Tenant A (vê carA1 e carA2, não vê carB)
+      const catalogA = await vehicleRepository.findCatalog({ tenant_id: testTenantId });
+      const idsA = catalogA.items.map(i => i.id);
+      expect(idsA).toContain(carA1.id);
+      expect(idsA).toContain(carA2.id);
+      expect(idsA).not.toContain(carB.id);
+
+      // Catálogo Tenant A filtrado por loja storeA1 (vê apenas carA1)
+      const catalogStoreA1 = await vehicleRepository.findCatalog({
+        tenant_id: testTenantId,
+        store_id: storeA1.id,
+      });
+      const idsStoreA1 = catalogStoreA1.items.map(i => i.id);
+      expect(idsStoreA1).toContain(carA1.id);
+      expect(idsStoreA1).not.toContain(carA2.id);
+
+      // Detalhamento com restrição de tenant
+      const detailTenantA = await vehicleRepository.findDetailedById(carA1.id, { tenant_id: testTenantId });
+      expect(detailTenantA).not.toBeNull();
+
+      const detailTenantB = await vehicleRepository.findDetailedById(carA1.id, { tenant_id: tenantB });
+      expect(detailTenantB).toBeNull();
     });
   });
 });

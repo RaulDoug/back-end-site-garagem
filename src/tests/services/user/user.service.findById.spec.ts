@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import UserService from '#services/user.service.js';
 import {
+  TENANT_ID,
   USER_ID,
   buildUser,
   safeUser,
@@ -25,10 +26,10 @@ describe('UserService.findById', () => {
   it('deve buscar o usuário por id e retornar sem password_hash', async () => {
     mockUserRepository.findById.mockResolvedValue(buildUser());
 
-    const resultado = await userService.findById(USER_ID);
+    const resultado = await userService.findById(USER_ID, TENANT_ID);
 
     expect(mockUserRepository.findById).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID);
+    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID, TENANT_ID);
     expect(resultado).toEqual(safeUser);
     expect(resultado).not.toHaveProperty('password_hash');
   });
@@ -36,11 +37,11 @@ describe('UserService.findById', () => {
   it('deve lançar erro quando o usuário não for encontrado por id', async () => {
     mockUserRepository.findById.mockResolvedValue(null);
 
-    await expect(userService.findById(USER_ID)).rejects.toThrow(
+    await expect(userService.findById(USER_ID, TENANT_ID)).rejects.toThrow(
       'Usuário inexistente.'
     );
 
     expect(mockUserRepository.findById).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID);
+    expect(mockUserRepository.findById).toHaveBeenCalledWith(USER_ID, TENANT_ID);
   });
 });

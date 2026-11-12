@@ -1,16 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import VehicleService from '#services/vehicle.service.js';
+import VehicleService, { TenantExecutionContext } from '#services/vehicle.service.js';
 import {
   VehicleRepository,
   type Vehicle,
   type DetailedVehicle,
 } from '#repositories/vehicle.repository.js';
+import { StoreRepository, type Store } from '#repositories/store.repository.js';
+import { ModelRepository, type Model } from '#repositories/model.repository.js';
+import { FeatureRepository } from '#repositories/feature.repository.js';
 import { sanitizeVehicleForRole } from '#utils/vehicle-sanitizer.util.js';
 import { viewTracker } from '#utils/view-tracker.util.js';
-import { NotFoundError, BadRequestError } from '#src/errors/app.error.js';
+import { NotFoundError, BadRequestError, AppError } from '#src/errors/app.error.js';
 
 const mockVehicle: Vehicle = {
   id: '1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d',
+  tenant_id: 'tenant-1',
   store_id: '2b3c4d5e-6f7a-4b9c-8d1e-2f3a4b5c6d7e',
   registered_by_user_id: '3c4d5e6f-7a8b-4c0d-9e2f-3a4b5c6d7e8f',
   sold_by_user_id: null,
@@ -62,8 +66,15 @@ const mockDetailedVehicle: DetailedVehicle = {
   photos: [],
 };
 
+const defaultCtx: TenantExecutionContext = {
+  tenantId: 'tenant-1',
+};
+
 describe('VehicleService e Utilitários', () => {
   let vehicleRepository: VehicleRepository;
+  let storeRepository: StoreRepository;
+  let modelRepository: ModelRepository;
+  let featureRepository: FeatureRepository;
   let vehicleService: VehicleService;
 
   beforeEach(() => {
@@ -82,7 +93,24 @@ describe('VehicleService e Utilitários', () => {
       delete: vi.fn(),
     } as unknown as VehicleRepository;
 
-    vehicleService = new VehicleService(vehicleRepository);
+    storeRepository = {
+      findByIdAndTenant: vi.fn().mockResolvedValue({ id: mockVehicle.store_id, tenant_id: 'tenant-1' } as Store),
+    } as unknown as StoreRepository;
+
+    modelRepository = {
+      findById: vi.fn().mockResolvedValue({ id: mockVehicle.model_id, tenant_id: 'tenant-1' } as Model),
+    } as unknown as ModelRepository;
+
+    featureRepository = {
+      findByIdsForTenant: vi.fn().mockImplementation(async (ids: string[]) => ids.map((id) => ({ id, name: `Feat ${id}` }))),
+    } as unknown as FeatureRepository;
+
+    vehicleService = new VehicleService(
+      vehicleRepository,
+      storeRepository,
+      modelRepository,
+      featureRepository
+    );
   });
 
   describe('RN003: Sanitização LGPD (sanitizeVehicleForRole)', () => {
@@ -122,7 +150,7 @@ describe('VehicleService e Utilitários', () => {
     });
   });
 
-  describe('Criação e atualização com extração automática de plate_last_digit', () => {
+  describe('Criação e atualização com extração automática de plate_last_digit e regras Multi-Tenant', () => {
     it('deve extrair plate_last_digit da full_license_plate ao criar veículo', async () => {
       vi.mocked(vehicleRepository.createWithFeatures).mockResolvedValue(mockVehicle);
 
@@ -146,22 +174,102 @@ describe('VehicleService e Utilitários', () => {
         full_license_plate: 'ABC1D28',
       };
 
-      await vehicleService.create(payload as unknown as Parameters<typeof vehicleService.create>[0], ['feat-1']);
+      await vehicleService.create(
+        payload as unknown as Parameters<typeof vehicleService.create>[0],
+        ['feat-1'],
+        defaultCtx
+      );
 
       expect(vehicleRepository.createWithFeatures).toHaveBeenCalledWith(
         expect.objectContaining({
           full_license_plate: 'ABC1D28',
           plate_last_digit: 8,
+          tenant_id: 'tenant-1',
         }),
         ['feat-1']
       );
+    });
+
+    it('deve lançar 403 Forbidden ao criar veículo apontando para filial diferente do userStoreId', async () => {
+      const branchCtx: TenantExecutionContext = {
+        tenantId: 'tenant-1',
+        userStoreId: 'minha-filial-id',
+      };
+
+      const payload = {
+        store_id: 'outra-filial-id',
+        model_id: mockVehicle.model_id,
+        full_license_plate: 'ABC1D28',
+      };
+
+      await expect(
+        vehicleService.create(
+          payload as unknown as Parameters<typeof vehicleService.create>[0],
+          [],
+          branchCtx
+        )
+      ).rejects.toThrow(new AppError('Usuário só tem permissão para operar veículos da sua própria filial', 403));
+    });
+
+    it('deve lançar 404 se a loja não pertencer ao tenant', async () => {
+      vi.mocked(storeRepository.findByIdAndTenant).mockResolvedValue(null);
+
+      const payload = {
+        store_id: 'loja-estranha',
+        model_id: mockVehicle.model_id,
+        full_license_plate: 'ABC1D28',
+      };
+
+      await expect(
+        vehicleService.create(
+          payload as unknown as Parameters<typeof vehicleService.create>[0],
+          [],
+          defaultCtx
+        )
+      ).rejects.toThrow(new AppError('Loja informada não encontrada nesta empresa', 404));
+    });
+
+    it('deve lançar 404 se o modelo não pertencer ao tenant', async () => {
+      vi.mocked(modelRepository.findById).mockResolvedValue(null);
+
+      const payload = {
+        store_id: mockVehicle.store_id,
+        model_id: 'modelo-estranho',
+        full_license_plate: 'ABC1D28',
+      };
+
+      await expect(
+        vehicleService.create(
+          payload as unknown as Parameters<typeof vehicleService.create>[0],
+          [],
+          defaultCtx
+        )
+      ).rejects.toThrow(new AppError('Modelo informado não encontrado nesta empresa', 404));
+    });
+
+    it('deve lançar 409 Conflict se a placa já existir no mesmo tenant', async () => {
+      vi.mocked(vehicleRepository.findByPlate).mockResolvedValue(mockVehicle);
+
+      const payload = {
+        store_id: mockVehicle.store_id,
+        model_id: mockVehicle.model_id,
+        full_license_plate: mockVehicle.full_license_plate,
+      };
+
+      await expect(
+        vehicleService.create(
+          payload as unknown as Parameters<typeof vehicleService.create>[0],
+          [],
+          defaultCtx
+        )
+      ).rejects.toThrow(new AppError('Placa já cadastrada para outro veículo ativo', 409));
     });
 
     it('deve recalcular plate_last_digit ao atualizar full_license_plate no update', async () => {
       vi.mocked(vehicleRepository.findById).mockResolvedValue(mockVehicle);
       vi.mocked(vehicleRepository.updateWithFeatures).mockResolvedValue(mockVehicle);
 
-      await vehicleService.update(mockVehicle.id, { full_license_plate: 'XYZ9K45' }, ['feat-2']);
+      await vehicleService.update(mockVehicle.id, { full_license_plate: 'XYZ9K45' }, ['feat-2'], defaultCtx);
 
       expect(vehicleRepository.updateWithFeatures).toHaveBeenCalledWith(
         mockVehicle.id,
@@ -169,21 +277,35 @@ describe('VehicleService e Utilitários', () => {
           full_license_plate: 'XYZ9K45',
           plate_last_digit: 5,
         }),
-        ['feat-2']
+        ['feat-2'],
+        'tenant-1'
       );
+    });
+
+    it('deve lançar 403 Forbidden no update se vendedor de filial tentar alterar veículo de outra filial', async () => {
+      vi.mocked(vehicleRepository.findById).mockResolvedValue(mockVehicle);
+
+      const branchCtx: TenantExecutionContext = {
+        tenantId: 'tenant-1',
+        userStoreId: 'outra-filial',
+      };
+
+      await expect(
+        vehicleService.update(mockVehicle.id, { title: 'Novo Titulo' }, undefined, branchCtx)
+      ).rejects.toThrow(new AppError('Usuário só tem permissão para operar veículos da sua própria filial', 403));
     });
 
     it('deve lançar BadRequestError no update ao mudar para CONSIGNADO sem dados do proprietário', async () => {
       vi.mocked(vehicleRepository.findById).mockResolvedValue(mockVehicle);
 
       await expect(
-        vehicleService.update(mockVehicle.id, { sale_type: 'CONSIGNADO' })
+        vehicleService.update(mockVehicle.id, { sale_type: 'CONSIGNADO' }, undefined, defaultCtx)
       ).rejects.toThrow(BadRequestError);
 
       expect(vehicleRepository.updateWithFeatures).not.toHaveBeenCalled();
     });
 
-    it('deve ignorar include_deleted=true na busca pública (findPublic)', async () => {
+    it('deve filtrar catálogo por tenant_id na busca pública (findPublic)', async () => {
       vi.mocked(vehicleRepository.findCatalog).mockResolvedValue({
         items: [],
         total: 0,
@@ -191,12 +313,13 @@ describe('VehicleService e Utilitários', () => {
         limit: 12,
       });
 
-      await vehicleService.findPublic({ include_deleted: 'true' });
+      await vehicleService.findPublic({ include_deleted: 'true' }, defaultCtx);
 
       expect(vehicleRepository.findCatalog).toHaveBeenCalledWith(
         expect.objectContaining({
           publicOnly: true,
           include_deleted: false,
+          tenant_id: 'tenant-1',
         })
       );
     });
@@ -214,7 +337,7 @@ describe('VehicleService e Utilitários', () => {
     it('primeiro acesso deve incrementar métrica de visualização e refletir no total_views retornado', async () => {
       vi.mocked(vehicleRepository.findDetailedById).mockResolvedValue(mockDetailedVehicle);
 
-      const res = await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
+      const res = await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0', defaultCtx);
 
       expect(vehicleRepository.incrementViewMetrics).not.toHaveBeenCalled();
       expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(1);
@@ -224,13 +347,13 @@ describe('VehicleService e Utilitários', () => {
     it('segundo acesso do mesmo IP e User-Agent após 10 minutos NÃO deve incrementar', async () => {
       vi.mocked(vehicleRepository.findDetailedById).mockResolvedValue(mockDetailedVehicle);
 
-      await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
+      await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0', defaultCtx);
       expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(1);
 
       // Avança 10 minutos
       vi.advanceTimersByTime(10 * 60 * 1000);
 
-      await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
+      await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0', defaultCtx);
       expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(1);
       expect(vehicleRepository.incrementViewMetrics).not.toHaveBeenCalled();
     });
@@ -238,13 +361,13 @@ describe('VehicleService e Utilitários', () => {
     it('acesso após 31 minutos deve incrementar novamente', async () => {
       vi.mocked(vehicleRepository.findDetailedById).mockResolvedValue(mockDetailedVehicle);
 
-      await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
+      await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0', defaultCtx);
       expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(1);
 
       // Avança 31 minutos
       vi.advanceTimersByTime(31 * 60 * 1000);
 
-      await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0');
+      await vehicleService.findByIdPublic(mockVehicle.id, '192.168.1.1', 'Mozilla/5.0', defaultCtx);
       expect(viewTracker.getPendingViews(mockVehicle.id)).toBe(2);
       expect(vehicleRepository.incrementViewMetrics).not.toHaveBeenCalled();
     });
@@ -252,7 +375,7 @@ describe('VehicleService e Utilitários', () => {
     it('findByIdAdmin NUNCA deve incrementar métrica de visualização pública', async () => {
       vi.mocked(vehicleRepository.findDetailedById).mockResolvedValue(mockDetailedVehicle);
 
-      await vehicleService.findByIdAdmin(mockVehicle.id, 'ADMIN');
+      await vehicleService.findByIdAdmin(mockVehicle.id, 'ADMIN', defaultCtx);
 
       expect(vehicleRepository.incrementViewMetrics).not.toHaveBeenCalled();
     });
@@ -261,7 +384,7 @@ describe('VehicleService e Utilitários', () => {
       vi.mocked(vehicleRepository.findDetailedById).mockResolvedValue(null);
 
       await expect(
-        vehicleService.findByIdPublic('id-inexistente', '127.0.0.1', 'curl')
+        vehicleService.findByIdPublic('id-inexistente', '127.0.0.1', 'curl', defaultCtx)
       ).rejects.toThrow(NotFoundError);
     });
   });
@@ -273,10 +396,10 @@ describe('VehicleService e Utilitários', () => {
         { ...mockDetailedVehicle, id: '2a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d' },
       ]);
 
-      const result = await vehicleService.comparePublic([
-        mockDetailedVehicle.id,
-        '2a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d',
-      ]);
+      const result = await vehicleService.comparePublic(
+        [mockDetailedVehicle.id, '2a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d'],
+        defaultCtx
+      );
 
       expect(result.length).toBe(2);
       expect(result[0]).not.toHaveProperty('full_license_plate');
@@ -284,9 +407,9 @@ describe('VehicleService e Utilitários', () => {
     });
 
     it('deve lançar BadRequestError se quantidade de IDs for menor que 2 ou maior que 3', async () => {
-      await expect(vehicleService.comparePublic(['id-1'])).rejects.toThrow(BadRequestError);
+      await expect(vehicleService.comparePublic(['id-1'], defaultCtx)).rejects.toThrow(BadRequestError);
       await expect(
-        vehicleService.comparePublic(['id-1', 'id-2', 'id-3', 'id-4'])
+        vehicleService.comparePublic(['id-1', 'id-2', 'id-3', 'id-4'], defaultCtx)
       ).rejects.toThrow(BadRequestError);
     });
   });

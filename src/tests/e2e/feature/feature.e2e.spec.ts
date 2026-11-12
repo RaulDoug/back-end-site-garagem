@@ -7,6 +7,9 @@ const {
   uniqueFeatureName,
   signToken,
   createFeature,
+  createGlobalFeature,
+  createTenant,
+  createTenantUser,
   cleanup,
 } = createFeatureE2EContext();
 
@@ -119,6 +122,72 @@ describe('E2E - /api/features', () => {
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(checkRes.status).toBe(404);
+    });
+  });
+
+  describe('Multi-tenant & Catálogo Híbrido de Opcionais', () => {
+    it('deve permitir listar e consultar opcional global (tenant_id IS NULL)', async () => {
+      const globalFeature = await createGlobalFeature(uniqueFeatureName());
+
+      const res = await request(app)
+        .get(`/api/features/${globalFeature.id}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.item.id).toBe(globalFeature.id);
+      expect(res.body.item.tenant_id).toBeNull();
+    });
+
+    it('deve impedir alteração (PUT) de opcional global retornando 403 Forbidden', async () => {
+      const globalFeature = await createGlobalFeature(uniqueFeatureName());
+
+      const res = await request(app)
+        .put(`/api/features/${globalFeature.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: uniqueFeatureName() });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/opcional global/i);
+    });
+
+    it('deve impedir exclusão (DELETE) de opcional global retornando 403 Forbidden', async () => {
+      const globalFeature = await createGlobalFeature(uniqueFeatureName());
+
+      const res = await request(app)
+        .delete(`/api/features/${globalFeature.id}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/opcional global/i);
+    });
+
+    it('deve isolar opcionais customizados entre tenants diferentes', async () => {
+      const tenantB = await createTenant('Tenant Opcionais B');
+      const tenantBUser = await createTenantUser(tenantB.id, 'ADMIN');
+
+      // Tenant A cria um opcional
+      const resA = await createFeature({ name: uniqueFeatureName() }, adminToken);
+      expect(resA.status).toBe(201);
+      const featureIdA = resA.body.item.id;
+
+      // Tenant B tenta consultar opcional do Tenant A -> 404
+      const resGetB = await request(app)
+        .get(`/api/features/${featureIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`);
+      expect(resGetB.status).toBe(404);
+
+      // Tenant B tenta alterar opcional do Tenant A -> 404
+      const resPutB = await request(app)
+        .put(`/api/features/${featureIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`)
+        .send({ name: uniqueFeatureName() });
+      expect(resPutB.status).toBe(404);
+
+      // Tenant B tenta deletar opcional do Tenant A -> 404
+      const resDelB = await request(app)
+        .delete(`/api/features/${featureIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`);
+      expect(resDelB.status).toBe(404);
     });
   });
 });

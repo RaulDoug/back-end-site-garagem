@@ -77,17 +77,61 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 - **Tipo:** Interceptor de Requisição (Autenticação Bearer Token).
 - **Entradas Analisadas:** Header HTTP `Authorization` (deve iniciar com o prefixo `Bearer `).
 - **Injeção no `Express.Request`:**
-  Injeta no objeto `req` a propriedade `user` tipada via extensão de módulo (`src/@types/express.d.ts`), priorizando os dados atuais do banco de dados (`user.id`, `user.email`, `user.role`) sobre o payload estático do token JWT para refletir alterações de perfil ou revogações imediatamente:
+  Injeta no objeto `req` a propriedade `user` tipada via extensão de módulo (`src/@types/express.d.ts`), priorizando os dados atuais do banco de dados (`user.id`, `user.email`, `user.role`, `user.tenant_id`, `user.store_id`) sobre o payload estático do token JWT para refletir alterações de perfil, permissões e filiais imediatamente:
   ```typescript
   req.user = {
-    id: string;    // UUID do usuário no banco
-    email: string; // E-mail atualizado do banco
-    role: string;  // ADMIN | VENDEDOR | VISUALIZADOR | PUBLICO atualizado
+    id: string;              // UUID do usuário no banco
+    email: string;           // E-mail atualizado do banco
+    role: string;            // ADMIN | VENDEDOR | VISUALIZADOR | PUBLICO atualizado
+    tenantId: string;        // UUID da empresa vinculada (obrigatório)
+    storeId: string | null;  // UUID da filial vinculada (ou null se atua na rede)
   };
   ```
 - **Tratamento de Erros e Interrupções:**
   - **Header ausente ou sem prefixo `Bearer `:** Status `401 Unauthorized`:
     ```json
+    {
+      "message": "Token não fornecido"
+    }
+    ```
+  - **Token adulterado ou expirado:** Dispara exceção capturada pelo handler retornando status `401 Unauthorized`:
+    ```json
+    {
+      "message": "Token inválido"
+    }
+    ```
+  - **Usuário inexistente ou inativo no banco:** Interrompe a requisição com status `401 Unauthorized`:
+    ```json
+    {
+      "message": "Usuário não encontrado ou inativo"
+    }
+    ```
+
+---
+
+### `resolvePublicTenantContext`
+- **Arquivo:** `src/middlewares/tenant.middleware.ts`
+- **Tipo:** Interceptor de Requisição (Resolução de Contexto Multi-Tenant para Vitrine Pública).
+- **Entradas Analisadas:**
+  1. `req.user?.tenantId` (caso o usuário esteja previamente autenticado).
+  2. Headers HTTP `x-tenant-id` e `x-store-id`.
+  3. Query parameters `tenant_id` e `store_id`.
+  4. *Fallback de Desenvolvimento:* Caso nenhum identificador seja informado, busca o primeiro tenant ativo no banco de dados para facilitar desenvolvimento frontend e exploração local.
+- **Injeção no `Express.Request`:**
+  Injeta no objeto `req` a propriedade `tenantContext` tipada:
+  ```typescript
+  req.tenantContext = {
+    tenantId: string;        // UUID da empresa dona da vitrine
+    storeId?: string | null; // UUID opcional da filial sendo visualizada
+  };
+  ```
+- **Tratamento de Erros e Interrupções:**
+  - Caso nenhum tenant seja localizado ou informado, interrompe a requisição com status `400 Bad Request`:
+    ```json
+    {
+      "message": "Contexto de empresa (tenant) não identificado para a vitrine"
+    }
+    ```
     {
       "message": "Acesso negado. Token não fornecido ou inválido"
     }
@@ -201,15 +245,15 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `generateToken(payload: { id: string, email: string, role: string }): string`
+### `generateToken(payload: { id: string, email: string, role: string, tenantId?: string, storeId?: string | null }): string`
 - **Arquivo:** `src/utils/jwt.util.ts`
-- **Descrição:** Gera e assina um token JWT contendo a identidade e o perfil do usuário com validade de 30 dias. Utiliza a função interna `getSecretKey()`, que valida estritamente a variável de ambiente `process.env.JWT_SECRET` (disparando erro se ausente ou vazia).
+- **Descrição:** Gera e assina um token JWT contendo a identidade, perfil, `tenantId` e `storeId` do usuário com validade de 30 dias. Utiliza a função interna `getSecretKey()`, que valida estritamente a variável de ambiente `process.env.JWT_SECRET` (disparando erro se ausente ou vazia).
 - **Assinatura & Parâmetros:**
-  - `payload` (`{ id: string, email: string, role: string }`): Informações do usuário autenticado a serem gravadas no token.
+  - `payload` (`{ id: string, email: string, role: string, tenantId?: string, storeId?: string | null }`): Informações do usuário autenticado a serem gravadas no token.
 - **Retorno:** `string` contendo o token no formato `Header.Payload.Signature`.
 - **Exemplo Real (Extraído dos testes do Vitest):**
-  - Entrada: `generateToken({ id: "4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b", email: "admin@garagem.com", role: "ADMIN" })`
-  - Saída: `"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjRmOGQzYzJiLTdhNjEtNGU1OS05YjBhLTJjM2Q0ZTVmNmE3YiIsImVtYWlsIjoiYWRtaW5AZ2FyYWdlbS5jb20iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE2OTk5OTk5OTksImV4cCI6MTcwMjU5MTk5OX0..."`
+  - Entrada: `generateToken({ id: "4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b", email: "admin@garagem.com", role: "ADMIN", tenantId: "11111111-1111-4111-8111-111111111111", storeId: "22222222-2222-4222-8222-222222222222" })`
+  - Saída: `"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`
 
 ---
 
@@ -218,10 +262,10 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 - **Descrição:** Valida a assinatura e expiração de um token JWT e extrai seu payload descriptografado contra `process.env.JWT_SECRET`.
 - **Assinatura & Parâmetros:**
   - `token` (`string`): Token JWT extraído do header `Authorization`.
-- **Retorno:** `JwtPayload` com as chaves `{ id, email, role, iat, exp }`. Dispara erro se a assinatura for adulterada, o token estiver expirado ou a chave `JWT_SECRET` não estiver configurada.
+- **Retorno:** `JwtPayload` com as chaves `{ id, email, role, tenantId, storeId, iat, exp }`. Dispara erro se a assinatura for adulterada, o token estiver expirado ou a chave `JWT_SECRET` não estiver configurada.
 - **Exemplo Real (Extraído dos testes do Vitest):**
   - Entrada: `validateToken("eyJhbGciOiJIUzI1Ni...")`
-  - Saída: `{ id: "4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b", email: "admin@garagem.com", role: "ADMIN" }`
+  - Saída: `{ id: "4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b", email: "admin@garagem.com", role: "ADMIN", tenantId: "11111111-1111-4111-8111-111111111111", storeId: "22222222-2222-4222-8222-222222222222" }`
 
 ---
 

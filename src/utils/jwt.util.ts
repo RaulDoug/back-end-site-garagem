@@ -1,5 +1,13 @@
 import jwt from 'jsonwebtoken';
 
+export interface TokenPayload {
+  id: string;
+  email: string;
+  role: string;
+  tenantId: string;
+  storeId?: string | null;
+}
+
 const getSecretKey = (): string => {
   const secret = process.env.JWT_SECRET;
   if (!secret || secret.trim() === '') {
@@ -8,10 +16,20 @@ const getSecretKey = (): string => {
   return secret;
 };
 
-export const generateToken = (payload: { id: string; email: string; role: string }) => {
-  return jwt.sign(payload, getSecretKey(), { expiresIn: '30d' });
+export const generateToken = (payload: TokenPayload): string => {
+  return jwt.sign(
+    {
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenantId: payload.tenantId,
+      storeId: payload.storeId ?? null,
+    },
+    getSecretKey(),
+    { expiresIn: '30d' }
+  );
 };
 
-export const validateToken = (token: string) => {
-  return jwt.verify(token, getSecretKey());
+export const validateToken = (token: string): TokenPayload => {
+  return jwt.verify(token, getSecretKey()) as TokenPayload;
 };

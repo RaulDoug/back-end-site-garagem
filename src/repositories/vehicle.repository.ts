@@ -4,6 +4,7 @@ import { buildInsertQuery, buildUpdateQuery } from '#utils/query.util.js';
 
 export interface Vehicle {
   id: string;
+  tenant_id: string;
   store_id: string;
   registered_by_user_id: string;
   sold_by_user_id: string | null;
@@ -107,6 +108,8 @@ export interface DetailedVehicle extends Vehicle {
 }
 
 export interface FindCatalogFilters {
+  tenant_id?: string;
+  store_id?: string;
   page?: number;
   limit?: number;
   category?: string;
@@ -128,28 +131,84 @@ export interface FindCatalogFilters {
 }
 
 export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData> {
+  protected override columns: (keyof Vehicle)[] = [
+    'id',
+    'tenant_id',
+    'store_id',
+    'registered_by_user_id',
+    'sold_by_user_id',
+    'model_id',
+    'promotion_id',
+    'sale_type',
+    'title',
+    'description',
+    'sale_price',
+    'purchase_price',
+    'owner_price',
+    'store_commission_rate',
+    'owner_name',
+    'owner_contact',
+    'fipe_price',
+    'min_down_payment',
+    'max_installments',
+    'manufacture_year',
+    'model_year',
+    'mileage',
+    'transmission',
+    'color',
+    'category',
+    'horsepower',
+    'fuel_type',
+    'steering',
+    'doors',
+    'full_license_plate',
+    'plate_last_digit',
+    'status',
+    'reservation_expires_at',
+    'video_url',
+    'inspection_report_url',
+    'total_views',
+    'sold_at',
+    'buyer_name',
+    'buyer_contact',
+    'website_lead_origin',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+  ];
+
   constructor() {
     super('vehicles', { softDelete: true, hasActiveStatus: false });
   }
 
-  override async delete(id: string): Promise<Vehicle | null> {
-    const query = `
+  override async delete(id: string, tenantId?: string): Promise<Vehicle | null> {
+    let query = `
       UPDATE vehicles
       SET deleted_at = NOW(), status = 'INATIVO', updated_at = NOW()
       WHERE id = $1 AND deleted_at IS NULL
-      RETURNING *;
     `;
-    const result = await pool.query<Vehicle>(query, [id]);
+    const params: unknown[] = [id];
+    if (tenantId) {
+      query += ' AND tenant_id = $2';
+      params.push(tenantId);
+    }
+    query += ' RETURNING *;';
+    const result = await pool.query<Vehicle>(query, params);
     return result.rows[0] || null;
   }
 
-  async findByPlate(plate: string): Promise<Vehicle | null> {
-    const query = `
+  async findByPlate(plate: string, tenantId?: string): Promise<Vehicle | null> {
+    let query = `
       SELECT * FROM vehicles
       WHERE full_license_plate = $1 AND deleted_at IS NULL
-      LIMIT 1;
     `;
-    const result = await pool.query<Vehicle>(query, [plate]);
+    const params: unknown[] = [plate];
+    if (tenantId) {
+      query += ' AND tenant_id = $2';
+      params.push(tenantId);
+    }
+    query += ' LIMIT 1;';
+    const result = await pool.query<Vehicle>(query, params);
     return result.rows[0] || null;
   }
 
@@ -187,7 +246,8 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
   async updateWithFeatures(
     id: string,
     data: Partial<CreateVehicleData>,
-    featureIds?: string[]
+    featureIds?: string[],
+    tenantId?: string
   ): Promise<Vehicle | null> {
     const client = await pool.connect();
     try {
@@ -200,15 +260,19 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
         const { query, values } = buildUpdateQuery(
           'vehicles',
           updatePayload as Record<string, unknown>,
-          id
+          id,
+          { tenantId }
         );
         const res = await client.query<Vehicle>(query, values);
         updatedVehicle = res.rows[0] || null;
       } else {
-        const res = await client.query<Vehicle>(
-          'SELECT * FROM vehicles WHERE id = $1 AND deleted_at IS NULL',
-          [id]
-        );
+        let query = 'SELECT * FROM vehicles WHERE id = $1 AND deleted_at IS NULL';
+        const params: unknown[] = [id];
+        if (tenantId) {
+          query += ' AND tenant_id = $2';
+          params.push(tenantId);
+        }
+        const res = await client.query<Vehicle>(query, params);
         updatedVehicle = res.rows[0] || null;
       }
 
@@ -232,14 +296,19 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
     }
   }
 
-  async updateInspectionReport(id: string, url: string | null): Promise<Vehicle | null> {
-    const query = `
+  async updateInspectionReport(id: string, url: string | null, tenantId?: string): Promise<Vehicle | null> {
+    let query = `
       UPDATE vehicles
       SET inspection_report_url = $1, updated_at = NOW()
       WHERE id = $2 AND deleted_at IS NULL
-      RETURNING *
     `;
-    const result = await pool.query<Vehicle>(query, [url, id]);
+    const params: unknown[] = [url, id];
+    if (tenantId) {
+      query += ' AND tenant_id = $3';
+      params.push(tenantId);
+    }
+    query += ' RETURNING *';
+    const result = await pool.query<Vehicle>(query, params);
     return result.rows[0] || null;
   }
 
@@ -256,6 +325,16 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
 
     if (!filters.include_deleted) {
       conditions.push('v.deleted_at IS NULL');
+    }
+
+    if (filters.tenant_id) {
+      conditions.push(`v.tenant_id = $${paramIndex++}`);
+      values.push(filters.tenant_id);
+    }
+
+    if (filters.store_id) {
+      conditions.push(`v.store_id = $${paramIndex++}`);
+      values.push(filters.store_id);
     }
 
     if (filters.publicOnly) {
@@ -392,7 +471,7 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
 
   async findDetailedById(
     id: string,
-    options: { publicOnly?: boolean } = {}
+    options: { publicOnly?: boolean; tenant_id?: string; store_id?: string } = {}
   ): Promise<DetailedVehicle | null> {
     let query = `
       SELECT 
@@ -405,6 +484,17 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
       JOIN brands b ON m.brand_id = b.id
       WHERE v.id = $1 AND v.deleted_at IS NULL
     `;
+    const params: unknown[] = [id];
+
+    if (options.tenant_id) {
+      params.push(options.tenant_id);
+      query += ` AND v.tenant_id = $${params.length}`;
+    }
+
+    if (options.store_id) {
+      params.push(options.store_id);
+      query += ` AND v.store_id = $${params.length}`;
+    }
 
     if (options.publicOnly) {
       query += ' AND v.status IN (\'ATIVO\', \'RESERVADO\')';
@@ -414,7 +504,7 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
 
     const res = await pool.query<Vehicle & { brand_id: string; brand_name: string; model_name: string }>(
       query,
-      [id]
+      params
     );
 
     if (res.rows.length === 0) {
@@ -457,7 +547,7 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
 
   async findByIds(
     ids: string[],
-    options: { publicOnly?: boolean } = {}
+    options: { publicOnly?: boolean; tenant_id?: string; store_id?: string } = {}
   ): Promise<DetailedVehicle[]> {
     if (ids.length === 0) return [];
 

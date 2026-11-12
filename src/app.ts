@@ -3,6 +3,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import userRoutes from '#routes/user.routes.js';
 import storeRoutes from '#routes/store.routes.js';
+import tenantRoutes from '#routes/tenant.routes.js';
 import brandRoutes from '#routes/brand.routes.js';
 import featureRoutes from '#routes/feature.routes.js';
 import modelRoutes from '#routes/model.routes.js';
@@ -29,6 +30,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 app.use('/api/users', userRoutes);
 app.use('/api/stores', storeRoutes);
+app.use('/api/tenants', tenantRoutes);
 app.use('/api/brands', brandRoutes);
 app.use('/api/features', featureRoutes);
 app.use('/api/models', modelRoutes);

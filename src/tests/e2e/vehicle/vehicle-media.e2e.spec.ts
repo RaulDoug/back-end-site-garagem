@@ -10,6 +10,8 @@ const {
   signToken,
   validProprioPayload,
   createVehicle,
+  createTenant,
+  createTenantUser,
   cleanup,
 } = createVehicleE2EContext();
 
@@ -225,6 +227,33 @@ describe('E2E - Vehicle Media & Inspection Report (/api/vehicles/:id)', () => {
 
       const reportAbs = path.resolve(process.cwd(), reportRelativeUrl.slice(1));
       expect(fs.existsSync(reportAbs)).toBe(false);
+    });
+  });
+
+  describe('Multi-tenant: Isolamento de Mídias entre Tenants', () => {
+    it('deve retornar 404 quando usuário de outro tenant tentar gerenciar mídias de um veículo', async () => {
+      const tenantB = await createTenant('Tenant Midias B');
+      const userB = await createTenantUser(tenantB.id, 'ADMIN');
+
+      // Tenant B tenta enviar foto para veículo do Tenant A -> 404
+      const resPhoto = await request(app)
+        .post(`/api/vehicles/${testVehicleId}/photos`)
+        .set('Authorization', `Bearer ${userB.token}`)
+        .attach('photos', imgBuffer1, 'foto_b.jpg');
+      expect(resPhoto.status).toBe(404);
+
+      // Tenant B tenta enviar laudo para veículo do Tenant A -> 404
+      const resReport = await request(app)
+        .patch(`/api/vehicles/${testVehicleId}/inspection-report`)
+        .set('Authorization', `Bearer ${userB.token}`)
+        .attach('report', pdfBuffer, 'laudo_b.pdf');
+      expect(resReport.status).toBe(404);
+
+      // Tenant B tenta deletar laudo de veículo do Tenant A -> 404
+      const resDelReport = await request(app)
+        .delete(`/api/vehicles/${testVehicleId}/inspection-report`)
+        .set('Authorization', `Bearer ${userB.token}`);
+      expect(resDelReport.status).toBe(404);
     });
   });
 });

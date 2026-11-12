@@ -11,7 +11,7 @@ import {
   deleteReportFile,
 } from '#utils/image-processor.util.js';
 import { AppError, NotFoundError } from '#src/errors/app.error.js';
-import { StorageProvider, LocalStorageProvider   } from '#utils/storage.util.js';
+import { StorageProvider, LocalStorageProvider } from '#utils/storage.util.js';
 
 export class VehicleMediaService {
   constructor(
@@ -20,25 +20,45 @@ export class VehicleMediaService {
     private readonly storage: StorageProvider = new LocalStorageProvider()
   ) {}
 
+  private async ensureVehicleAccess(
+    vehicleId: string,
+    tenantId: string,
+    userStoreId?: string | null
+  ): Promise<Vehicle> {
+    const vehicle = await this.vehicleRepository.findById(vehicleId, tenantId);
+    if (!vehicle) {
+      throw new NotFoundError('Veículo não encontrado');
+    }
+    if (userStoreId && vehicle.store_id !== userStoreId) {
+      throw new AppError(
+        'Usuário só tem permissão para gerenciar mídias de veículos da sua própria filial',
+        403
+      );
+    }
+    return vehicle;
+  }
+
   /**
    * Realiza upload de até 15 fotos para um veículo.
    * Aplica RN008: se o veículo tem 0 fotos, a primeira é definida como is_primary = true.
    */
-  async uploadPhotos(vehicleId: string, files: Express.Multer.File[]): Promise<VehiclePhoto[]> {
+  async uploadPhotos(
+    vehicleId: string,
+    files: Express.Multer.File[],
+    tenantId: string,
+    userStoreId?: string | null
+  ): Promise<VehiclePhoto[]> {
     const photosToInsert: CreatePhotoData[] = [];
 
-    try {  
-      const vehicle = await this.vehicleRepository.findById(vehicleId);
-      if (!vehicle) {
-        throw new NotFoundError('Veículo não encontrado');
-      }
+    try {
+      await this.ensureVehicleAccess(vehicleId, tenantId, userStoreId);
 
       if (!files || files.length === 0) {
         throw new AppError('Nenhuma foto enviada para upload', 400);
       }
 
       const countData = await this.vehiclePhotoRepository.countByVehicleId(vehicleId);
-    
+
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const photoId = crypto.randomUUID();
@@ -76,15 +96,20 @@ export class VehicleMediaService {
    * Reordena a galeria de fotos do veículo.
    * O índice 0 torna-se automaticamente is_primary = true (RN008).
    */
-  async reorderPhotos(vehicleId: string, photoIds: string[]): Promise<VehiclePhoto[]> {
-    const vehicle = await this.vehicleRepository.findById(vehicleId);
-    if (!vehicle) {
-      throw new NotFoundError('Veículo não encontrado');
-    }
+  async reorderPhotos(
+    vehicleId: string,
+    photoIds: string[],
+    tenantId: string,
+    userStoreId?: string | null
+  ): Promise<VehiclePhoto[]> {
+    await this.ensureVehicleAccess(vehicleId, tenantId, userStoreId);
 
     const countData = await this.vehiclePhotoRepository.countByVehicleId(vehicleId);
     if (countData.count !== photoIds.length) {
-      throw new AppError('A quantidade de fotos informada diverge do total cadastrado para o veículo', 400);
+      throw new AppError(
+        'A quantidade de fotos informada diverge do total cadastrado para o veículo',
+        400
+      );
     }
 
     return await this.vehiclePhotoRepository.reorder(vehicleId, photoIds);
@@ -94,11 +119,13 @@ export class VehicleMediaService {
    * Remove uma foto da galeria e do disco.
    * Se a foto removida for a capa (is_primary = true), a próxima foto de menor display_order é eleita nova capa.
    */
-  async deletePhoto(vehicleId: string, photoId: string): Promise<void> {
-    const vehicle = await this.vehicleRepository.findById(vehicleId);
-    if (!vehicle) {
-      throw new NotFoundError('Veículo não encontrado');
-    }
+  async deletePhoto(
+    vehicleId: string,
+    photoId: string,
+    tenantId: string,
+    userStoreId?: string | null
+  ): Promise<void> {
+    await this.ensureVehicleAccess(vehicleId, tenantId, userStoreId);
 
     const photo = await this.vehiclePhotoRepository.findById(photoId);
     if (!photo) {
@@ -127,14 +154,16 @@ export class VehicleMediaService {
   /**
    * Realiza upload do laudo pericial (PDF). Remove laudo anterior do disco se existir.
    */
-  async uploadInspectionReport(vehicleId: string, file: Express.Multer.File): Promise<Vehicle> {
+  async uploadInspectionReport(
+    vehicleId: string,
+    file: Express.Multer.File,
+    tenantId: string,
+    userStoreId?: string | null
+  ): Promise<Vehicle> {
     let relativePath: string | null = null;
 
-    try {  
-      const vehicle = await this.vehicleRepository.findById(vehicleId);
-      if (!vehicle) {
-        throw new NotFoundError('Veículo não encontrado');
-      }
+    try {
+      const vehicle = await this.ensureVehicleAccess(vehicleId, tenantId, userStoreId);
 
       if (!file || !file.path) {
         throw new AppError('Arquivo de laudo não informado', 400);
@@ -142,8 +171,12 @@ export class VehicleMediaService {
 
       const reportId = crypto.randomUUID();
       relativePath = await this.storage.save('reports', `${reportId}.pdf`, file.path);
-    
-      const updated = await this.vehicleRepository.updateInspectionReport(vehicleId, relativePath);
+
+      const updated = await this.vehicleRepository.updateInspectionReport(
+        vehicleId,
+        relativePath,
+        tenantId
+      );
 
       if (!updated) {
         throw new AppError('Falha ao atualizar registro do laudo', 500);
@@ -158,7 +191,7 @@ export class VehicleMediaService {
       if (relativePath) {
         await deleteReportFile(relativePath);
       }
-      
+
       throw error;
     } finally {
       if (file?.path) await this.storage.deleteTempFile(file.path);
@@ -168,16 +201,17 @@ export class VehicleMediaService {
   /**
    * Exclui o laudo pericial (PDF) físico e desvincula do veículo.
    */
-  async deleteInspectionReport(vehicleId: string): Promise<Vehicle | null> {
-    const vehicle = await this.vehicleRepository.findById(vehicleId);
-    if (!vehicle) {
-      throw new NotFoundError('Veículo não encontrado');
-    }
+  async deleteInspectionReport(
+    vehicleId: string,
+    tenantId: string,
+    userStoreId?: string | null
+  ): Promise<Vehicle | null> {
+    const vehicle = await this.ensureVehicleAccess(vehicleId, tenantId, userStoreId);
 
     if (vehicle.inspection_report_url) {
       await deleteReportFile(vehicle.inspection_report_url);
     }
 
-    return await this.vehicleRepository.updateInspectionReport(vehicleId, null);
+    return await this.vehicleRepository.updateInspectionReport(vehicleId, null, tenantId);
   }
 }

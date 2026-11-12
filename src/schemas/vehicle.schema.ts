@@ -184,6 +184,7 @@ export const findVehicleSchema = z.object({
         'O limite por página deve ser 12, 24, 36 ou 48'
       )
       .default(12),
+    store_id: z.string().uuid('ID da loja inválido').optional(),
     category: categoryEnum.optional(),
     brand_id: z.string().uuid('ID da marca inválido').optional(),
     model_id: z.string().uuid('ID do modelo inválido').optional(),

@@ -50,6 +50,7 @@ import { parseArgs } from 'node:util';
 import pool from '../config/database.js';
 import UserService from '../services/user.service.js';
 import { createUserSchema } from '../schemas/user.schema.js';
+import { tenantRepository } from '../repositories/tenant.repository.js';
 
 function printHelp() {
   console.log(`
@@ -100,12 +101,24 @@ async function createAdmin() {
   };
 
   try {
-    // 1. Validação estrutural com o schema Zod do sistema
+    // 1. Obtenção ou criação do tenant padrão do sistema
+    const adminTenantCnpj = process.env.ADMIN_TENANT_CNPJ || '45723174000110';
+    let tenant = await tenantRepository.findByCNPJ(adminTenantCnpj);
+    if (!tenant) {
+      tenant = await tenantRepository.create({
+        corporate_name: 'Empresa Administradora Matriz LTDA',
+        trade_name: 'Administração Garagem',
+        cnpj: adminTenantCnpj,
+        is_active: true,
+      });
+    }
+
+    // 2. Validação estrutural com o schema Zod do sistema
     const validatedData = createUserSchema.shape.body.parse(adminData);
 
-    // 2. Execução da criação através do UserService (valida duplicidade e gera hash da senha)
+    // 3. Execução da criação através do UserService (valida duplicidade no tenant e gera hash da senha)
     const userService = new UserService();
-    const createdAdmin = await userService.create(validatedData);
+    const createdAdmin = await userService.create(validatedData, tenant.id);
 
     console.log('✅ Usuário ADMIN criado com sucesso!');
     console.log(`🆔 ID: ${createdAdmin.id}`);

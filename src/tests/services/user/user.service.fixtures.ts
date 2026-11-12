@@ -1,5 +1,6 @@
 import type { User } from '#repositories/user.repository.js';
 
+export const TENANT_ID = 'tenant-123';
 export const USER_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
 export const OTHER_USER_ID = 'a3f1c2d4-5b6e-4f7a-8c9d-0e1f2a3b4c5d';
 export const USER_EMAIL = 'raul.ferreira@garagem.com';
@@ -12,6 +13,8 @@ export const HASHED_PASSWORD =
 
 export const safeUser: Omit<User, 'password_hash'> = {
   id: USER_ID,
+  tenant_id: TENANT_ID,
+  store_id: null,
   name: 'Raul Ferreira',
   email: USER_EMAIL,
   phone: '(37) 99999-9999',
@@ -24,6 +27,8 @@ export const safeUser: Omit<User, 'password_hash'> = {
 
 export const otherSafeUser: Omit<User, 'password_hash'> = {
   id: OTHER_USER_ID,
+  tenant_id: TENANT_ID,
+  store_id: null,
   name: 'Ana Souza',
   email: OTHER_USER_EMAIL,
   phone: '(31) 98888-7777',

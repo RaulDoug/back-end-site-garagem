@@ -14,12 +14,17 @@ describe('VehicleMediaService', () => {
   let photoRepo: VehiclePhotoRepository;
   let mockStorage: StorageProvider;
 
+  const tenantId = '11111111-2222-3333-4444-555555555555';
+  const storeId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const otherStoreId = 'ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee';
   const vehicleId = '11111111-1111-1111-1111-111111111111';
   const photoId1 = '22222222-2222-2222-2222-222222222222';
   const photoId2 = '33333333-3333-3333-3333-333333333333';
 
   const fakeVehicle = {
     id: vehicleId,
+    tenant_id: tenantId,
+    store_id: storeId,
     title: 'Carro Teste',
     inspection_report_url: null,
   };
@@ -44,18 +49,36 @@ describe('VehicleMediaService', () => {
     vi.spyOn(imageProcessor, 'deleteReportFile').mockResolvedValue(undefined);
   });
 
+  describe('ensureVehicleAccess (Multi-tenant & Multi-store)', () => {
+    it('deve lançar NotFoundError se o veículo não existir no tenant', async () => {
+      vi.spyOn(vehicleRepo, 'findById').mockResolvedValue(null);
+      const files = [{ path: '/tmp/test.jpg' }] as Express.Multer.File[];
+
+      await expect(service.uploadPhotos(vehicleId, files, tenantId)).rejects.toThrow(NotFoundError);
+      expect(vehicleRepo.findById).toHaveBeenCalledWith(vehicleId, tenantId);
+    });
+
+    it('deve lançar 403 Forbidden se usuário de filial tentar acessar veículo de outra filial', async () => {
+      const files = [{ path: '/tmp/test.jpg' }] as Express.Multer.File[];
+
+      await expect(service.uploadPhotos(vehicleId, files, tenantId, otherStoreId)).rejects.toThrow(
+        new AppError('Usuário só tem permissão para gerenciar mídias de veículos da sua própria filial', 403)
+      );
+    });
+  });
+
   describe('uploadPhotos', () => {
     it('deve lançar NotFoundError se o veículo não existir e limpar arquivos temporários', async () => {
       vi.spyOn(vehicleRepo, 'findById').mockResolvedValue(null);
 
       const files = [{ path: '/tmp/test.jpg' }] as Express.Multer.File[];
 
-      await expect(service.uploadPhotos(vehicleId, files)).rejects.toThrow(NotFoundError);
+      await expect(service.uploadPhotos(vehicleId, files, tenantId)).rejects.toThrow(NotFoundError);
       expect(mockStorage.deleteTempFile).toHaveBeenCalledWith('/tmp/test.jpg');
     });
 
     it('deve lançar AppError se a lista de arquivos estiver vazia', async () => {
-      await expect(service.uploadPhotos(vehicleId, [])).rejects.toThrow(AppError);
+      await expect(service.uploadPhotos(vehicleId, [], tenantId)).rejects.toThrow(AppError);
     });
 
     it('deve definir a primeira foto como capa (is_primary = true) quando o veículo tiver 0 fotos', async () => {
@@ -67,7 +90,7 @@ describe('VehicleMediaService', () => {
         { path: '/tmp/img2.jpg' },
       ] as Express.Multer.File[];
 
-      await service.uploadPhotos(vehicleId, files);
+      await service.uploadPhotos(vehicleId, files, tenantId);
 
       expect(createManySpy).toHaveBeenCalledWith(
         vehicleId,
@@ -85,7 +108,7 @@ describe('VehicleMediaService', () => {
 
       const files = [{ path: '/tmp/img3.jpg' }] as Express.Multer.File[];
 
-      await service.uploadPhotos(vehicleId, files);
+      await service.uploadPhotos(vehicleId, files, tenantId);
 
       expect(createManySpy).toHaveBeenCalledWith(
         vehicleId,
@@ -105,7 +128,7 @@ describe('VehicleMediaService', () => {
         { path: '/tmp/img2.jpg' },
       ] as Express.Multer.File[];
 
-      await expect(service.uploadPhotos(vehicleId, files)).rejects.toThrow('DB failure');
+      await expect(service.uploadPhotos(vehicleId, files, tenantId)).rejects.toThrow('DB failure');
 
       expect(imageProcessor.deletePhotoFiles).toHaveBeenCalledTimes(2);
       expect(mockStorage.deleteTempFile).toHaveBeenCalledTimes(2);
@@ -116,13 +139,13 @@ describe('VehicleMediaService', () => {
     it('deve lançar NotFoundError se o veículo não existir', async () => {
       vi.spyOn(vehicleRepo, 'findById').mockResolvedValue(null);
 
-      await expect(service.reorderPhotos(vehicleId, [photoId1])).rejects.toThrow(NotFoundError);
+      await expect(service.reorderPhotos(vehicleId, [photoId1], tenantId)).rejects.toThrow(NotFoundError);
     });
 
     it('deve lançar AppError se a quantidade de photoIds for diferente do total existente', async () => {
       vi.spyOn(photoRepo, 'countByVehicleId').mockResolvedValue({ count: 3, maxOrder: 2 });
 
-      await expect(service.reorderPhotos(vehicleId, [photoId1, photoId2])).rejects.toThrow(
+      await expect(service.reorderPhotos(vehicleId, [photoId1, photoId2], tenantId)).rejects.toThrow(
         /quantidade de fotos informada diverge/i
       );
     });
@@ -131,7 +154,7 @@ describe('VehicleMediaService', () => {
       vi.spyOn(photoRepo, 'countByVehicleId').mockResolvedValue({ count: 2, maxOrder: 1 });
       const reorderSpy = vi.spyOn(photoRepo, 'reorder').mockResolvedValue([]);
 
-      await service.reorderPhotos(vehicleId, [photoId2, photoId1]);
+      await service.reorderPhotos(vehicleId, [photoId2, photoId1], tenantId);
 
       expect(reorderSpy).toHaveBeenCalledWith(vehicleId, [photoId2, photoId1]);
     });
@@ -151,7 +174,7 @@ describe('VehicleMediaService', () => {
     it('deve lançar NotFoundError se veículo ou foto não existirem', async () => {
       vi.spyOn(photoRepo, 'findById').mockResolvedValue(null);
 
-      await expect(service.deletePhoto(vehicleId, photoId1)).rejects.toThrow(NotFoundError);
+      await expect(service.deletePhoto(vehicleId, photoId1, tenantId)).rejects.toThrow(NotFoundError);
     });
 
     it('deve lançar AppError se a foto pertencer a outro veículo', async () => {
@@ -160,7 +183,7 @@ describe('VehicleMediaService', () => {
         vehicle_id: 'other-veh-id',
       });
 
-      await expect(service.deletePhoto(vehicleId, photoId1)).rejects.toThrow(AppError);
+      await expect(service.deletePhoto(vehicleId, photoId1, tenantId)).rejects.toThrow(AppError);
     });
 
     it('deve deletar arquivos físicos e do banco, e eleger nova capa se a capa foi deletada', async () => {
@@ -179,7 +202,7 @@ describe('VehicleMediaService', () => {
       vi.spyOn(photoRepo, 'findByVehicleId').mockResolvedValue([nextPhoto]);
       const setPrimarySpy = vi.spyOn(photoRepo, 'setPrimary').mockResolvedValue(undefined);
 
-      await service.deletePhoto(vehicleId, photoId1);
+      await service.deletePhoto(vehicleId, photoId1, tenantId);
 
       expect(imageProcessor.deletePhotoFiles).toHaveBeenCalledWith(
         existingPhoto.thumb_path,
@@ -196,13 +219,13 @@ describe('VehicleMediaService', () => {
 
       const file = { path: '/tmp/laudo.pdf' } as Express.Multer.File;
 
-      await expect(service.uploadInspectionReport(vehicleId, file)).rejects.toThrow(NotFoundError);
+      await expect(service.uploadInspectionReport(vehicleId, file, tenantId)).rejects.toThrow(NotFoundError);
       expect(mockStorage.deleteTempFile).toHaveBeenCalledWith('/tmp/laudo.pdf');
     });
 
     it('deve lançar AppError se arquivo for indefinido', async () => {
       await expect(
-        service.uploadInspectionReport(vehicleId, undefined as unknown as Express.Multer.File)
+        service.uploadInspectionReport(vehicleId, undefined as unknown as Express.Multer.File, tenantId)
       ).rejects.toThrow(AppError);
     });
 
@@ -221,13 +244,14 @@ describe('VehicleMediaService', () => {
 
       const file = { path: '/tmp/laudo.pdf' } as Express.Multer.File;
 
-      await service.uploadInspectionReport(vehicleId, file);
+      await service.uploadInspectionReport(vehicleId, file, tenantId);
 
       expect(imageProcessor.deleteReportFile).toHaveBeenCalledWith('/uploads/vehicles/reports/antigo.pdf');
       expect(mockStorage.save).toHaveBeenCalledWith('reports', expect.stringMatching(/\.pdf$/), '/tmp/laudo.pdf');
       expect(updateReportSpy).toHaveBeenCalledWith(
         vehicleId,
-        expect.stringMatching(/\/uploads\/vehicles\/reports\/.*\.pdf$/)
+        expect.stringMatching(/\/uploads\/vehicles\/reports\/.*\.pdf$/),
+        tenantId
       );
       expect(mockStorage.deleteTempFile).toHaveBeenCalledWith('/tmp/laudo.pdf');
     });
@@ -242,7 +266,7 @@ describe('VehicleMediaService', () => {
 
       const file = { path: '/tmp/laudo.pdf' } as Express.Multer.File;
 
-      await expect(service.uploadInspectionReport(vehicleId, file)).rejects.toThrow(AppError);
+      await expect(service.uploadInspectionReport(vehicleId, file, tenantId)).rejects.toThrow(AppError);
 
       expect(imageProcessor.deleteReportFile).not.toHaveBeenCalledWith(
         '/uploads/vehicles/reports/antigo.pdf'
@@ -262,12 +286,12 @@ describe('VehicleMediaService', () => {
       } as unknown as Vehicle);
       const updateReportSpy = vi.spyOn(vehicleRepo, 'updateInspectionReport').mockResolvedValue(null);
 
-      await service.deleteInspectionReport(vehicleId);
+      await service.deleteInspectionReport(vehicleId, tenantId);
 
       expect(imageProcessor.deleteReportFile).toHaveBeenCalledWith(
         '/uploads/vehicles/reports/existente.pdf'
       );
-      expect(updateReportSpy).toHaveBeenCalledWith(vehicleId, null);
+      expect(updateReportSpy).toHaveBeenCalledWith(vehicleId, null, tenantId);
     });
   });
 });

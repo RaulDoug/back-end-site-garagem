@@ -10,7 +10,21 @@ Este documento especifica a tipagem física em PostgreSQL, chaves primárias (PK
 
 ```mermaid
 erDiagram
+    TENANTS ||--|{ STORES : "owns"
+    TENANTS ||--o{ USERS : "has"
+    TENANTS ||--o{ BRANDS : "has"
+    TENANTS ||--o{ MODELS : "has"
+    TENANTS ||--o{ FEATURES : "has"
+    TENANTS ||--o{ PROMOTIONS : "has"
+    TENANTS ||--o{ VEHICLES : "owns"
+    TENANTS ||--o{ TRADE_IN_PROPOSALS : "receives"
+    TENANTS ||--o{ LEAD_INTERESTS : "receives"
+    TENANTS ||--o{ FINANCING_BANKS : "configures"
+    STORES ||--o{ USERS : "employs"
+    STORES ||--o{ PROMOTIONS : "runs"
     STORES ||--o{ VEHICLES : "belongs_to"
+    STORES ||--o{ TRADE_IN_PROPOSALS : "receives"
+    STORES ||--o{ LEAD_INTERESTS : "receives"
     STORES ||--o{ FINANCING_BANKS : "works_with"
     FINANCING_BANKS ||--|{ BANK_RATES : "has_rates"
     USERS ||--o{ VEHICLES : "registers"
@@ -30,18 +44,37 @@ erDiagram
     LEAD_INTERESTS }o--o| BRANDS : "wants"
     LEAD_INTERESTS }o--o| MODELS : "wants"
 
-    STORES {
+    TENANTS {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
-        varchar_255 name "NOT NULL"
-        varchar_15 phone "NOT NULL"
-        varchar_255 address "NOT NULL"
+        varchar_255 corporate_name "NOT NULL"
+        varchar_255 trade_name "NOT NULL"
         varchar_18 cnpj "NOT NULL"
         boolean is_active "NULLABLE, DEFAULT true"
+        timestamp created_at "NULLABLE, DEFAULT now()"
+        timestamp deleted_at "NULLABLE"
+    }
+
+    STORES {
+        uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NOT NULL"
+        varchar_255 name "NOT NULL"
+        varchar_15 phone "NOT NULL"
+        varchar_8 zip_code "NOT NULL"
+        varchar_255 street "NOT NULL"
+        varchar_20 number "NOT NULL"
+        varchar_100 complement "NULLABLE"
+        varchar_100 neighborhood "NOT NULL"
+        varchar_100 city "NOT NULL"
+        varchar_2 state "NOT NULL"
+        varchar_18 cnpj "NOT NULL"
+        boolean is_active "NULLABLE, DEFAULT true"
+        timestamp deleted_at "NULLABLE"
         timestamp created_at "NULLABLE, DEFAULT now()"
     }
 
     FINANCING_BANKS {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NOT NULL"
         uuid store_id FK "NOT NULL"
         varchar_255 name "NOT NULL"
         int display_order "NOT NULL"
@@ -60,6 +93,8 @@ erDiagram
 
     USERS {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NOT NULL"
+        uuid store_id FK "NULLABLE"
         varchar_255 name "NOT NULL"
         varchar_255 email "NOT NULL"
         varchar_255 password_hash "NOT NULL"
@@ -67,23 +102,33 @@ erDiagram
         users_roles_types role "NULLABLE, DEFAULT 'VENDEDOR', ENUM: ADMIN, VENDEDOR, VISUALIZADOR, PUBLICO"
         numeric_5_2 commission_rates "NULLABLE"
         boolean is_active "NULLABLE, DEFAULT true"
+        timestamp deleted_at "NULLABLE"
         timestamp created_at "NULLABLE, DEFAULT now()"
     }
 
     BRANDS {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NULLABLE"
         varchar_255 name "NOT NULL"
+        boolean is_active "NULLABLE, DEFAULT true"
+        timestamp deleted_at "NULLABLE"
+        timestamp created_at "NULLABLE, DEFAULT now()"
     }
 
     MODELS {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NOT NULL"
         uuid brand_id FK "NOT NULL"
         varchar_255 name "NOT NULL"
+        boolean is_active "NULLABLE, DEFAULT true"
+        timestamp deleted_at "NULLABLE"
+        timestamp created_at "NULLABLE, DEFAULT now()"
     }
 
     FEATURES {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
-        varchar_255 name "NOT NULL, UNIQUE"
+        uuid tenant_id FK "NULLABLE"
+        varchar_255 name "NOT NULL"
     }
 
     VEHICLE_FEATURES {
@@ -93,6 +138,8 @@ erDiagram
 
     PROMOTIONS {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NOT NULL"
+        uuid store_id FK "NOT NULL"
         varchar_255 name "NOT NULL"
         varchar_255 description "NULLABLE"
         date start_date "NOT NULL"
@@ -102,6 +149,7 @@ erDiagram
 
     VEHICLES {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NOT NULL"
         uuid store_id FK "NOT NULL"
         uuid registered_by_user_id FK "NOT NULL"
         uuid sold_by_user_id FK "NULLABLE"
@@ -111,8 +159,8 @@ erDiagram
         varchar_255 title "NOT NULL"
         text description "NOT NULL"
         numeric_10_2 sale_price "NOT NULL"
-        numeric_10_2 purchase_price "NOT NULL"
-        numeric_10_2 owner_price "NOT NULL"
+        numeric_10_2 purchase_price "NULLABLE"
+        numeric_10_2 owner_price "NULLABLE"
         numeric_5_2 store_commission_rate "NULLABLE"
         varchar_255 owner_name "NULLABLE"
         varchar_15 owner_contact "NULLABLE"
@@ -142,6 +190,7 @@ erDiagram
         boolean website_lead_origin "NULLABLE"
         timestamp created_at "NULLABLE, DEFAULT now()"
         timestamp updated_at "NULLABLE"
+        timestamp deleted_at "NULLABLE"
     }
 
     VEHICLE_PHOTOS {
@@ -156,6 +205,8 @@ erDiagram
 
     TRADE_IN_PROPOSALS {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NOT NULL"
+        uuid store_id FK "NOT NULL"
         uuid vehicle_id FK "NOT NULL"
         varchar_255 customer_name "NOT NULL"
         varchar_15 customer_phone "NOT NULL"
@@ -173,6 +224,8 @@ erDiagram
 
     LEAD_INTERESTS {
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
+        uuid tenant_id FK "NOT NULL"
+        uuid store_id FK "NOT NULL"
         varchar_255 customer_name "NOT NULL"
         varchar_255 customer_phone "NOT NULL"
         lead_preferred_channel_type preferred_channel "NULLABLE, DEFAULT 'WHATSAPP', ENUM: WHATSAPP, LIGACAO, EMAIL"
@@ -224,21 +277,22 @@ erDiagram
 
 | Entidade | Chave Primária (PK) | Chaves Estrangeiras (FK) | Campos Obrigatórios (`NOT NULL`) Críticos |
 | :--- | :--- | :--- | :--- |
-| **STORES** | `id` (UUID) | - | `name`, `phone`, `address`, `cnpj` |
-| **FINANCING_BANKS** | `id` (UUID) | `store_id` -> `STORES(id)` (ON DELETE CASCADE) | `store_id`, `name`, `display_order` |
+| **TENANTS** | `id` (UUID) | - | `corporate_name`, `trade_name`, `cnpj` |
+| **STORES** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT) | `tenant_id`, `name`, `phone`, `zip_code`, `street`, `number`, `neighborhood`, `city`, `state`, `cnpj` |
+| **FINANCING_BANKS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT) | `tenant_id`, `store_id`, `name`, `display_order` |
 | **BANK_RATES** | `id` (UUID) | `bank_id` -> `FINANCING_BANKS(id)` (ON DELETE CASCADE) | `bank_id`, `months_from`, `months_to`, `monthly_interest_rate` |
-| **USERS** | `id` (UUID) | - | `name`, `email`, `password_hash`, `phone` |
-| **BRANDS** | `id` (UUID) | - | `name` |
-| **MODELS** | `id` (UUID) | `brand_id` -> `BRANDS(id)` (ON DELETE CASCADE) | `brand_id`, `name` |
-| **FEATURES** | `id` (UUID) | - | `name` (UNIQUE) |
+| **USERS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT) | `tenant_id`, `name`, `email`, `password_hash`, `phone` |
+| **BRANDS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT) | `name` |
+| **MODELS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `brand_id` -> `BRANDS(id)` (ON DELETE RESTRICT) | `tenant_id`, `brand_id`, `name` |
+| **FEATURES** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT) | `name` |
 | **VEHICLE_FEATURES** | Composta (`vehicle_id`, `feature_id`) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE), `feature_id` -> `FEATURES(id)` (ON DELETE CASCADE) | Ambos compõem PK e são `NOT NULL` |
-| **PROMOTIONS** | `id` (UUID) | - | `name`, `start_date`, `end_date` |
-| **VEHICLES** | `id` (UUID) | `store_id`, `registered_by_user_id`, `sold_by_user_id`, `model_id`, `promotion_id` | `store_id`, `registered_by_user_id`, `model_id`, `title`, `description`, `sale_price`, `purchase_price`, `owner_price`, `manufacture_year`, `model_year`, `mileage`, `transmission`, `color`, `category`, `fuel_type`, `steering`, `doors`, `full_license_plate`, `plate_last_digit` |
+| **PROMOTIONS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT) | `tenant_id`, `store_id`, `name`, `start_date`, `end_date` |
+| **VEHICLES** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT), `registered_by_user_id` -> `USERS(id)` (ON DELETE RESTRICT), `sold_by_user_id` -> `USERS(id)` (ON DELETE RESTRICT), `model_id` -> `MODELS(id)` (ON DELETE RESTRICT), `promotion_id` -> `PROMOTIONS(id)` (ON DELETE SET NULL) | `tenant_id`, `store_id`, `registered_by_user_id`, `model_id`, `title`, `description`, `sale_price`, `manufacture_year`, `model_year`, `mileage`, `transmission`, `color`, `category`, `fuel_type`, `steering`, `doors`, `full_license_plate`, `plate_last_digit` |
 | **VEHICLE_PHOTOS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE) | `vehicle_id`, `thumb_path`, `full_path` |
-| **TRADE_IN_PROPOSALS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE) | `vehicle_id`, `customer_name`, `customer_phone`, `vehicle_brand`, `vehicle_model`, `vehicle_year`, `vehicle_mileage`, `intended_value`, `notes` |
-| **LEAD_INTERESTS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE SET NULL), `brand_id` -> `BRANDS(id)`, `model_id` -> `MODELS(id)` | `customer_name`, `customer_phone` |
+| **TRADE_IN_PROPOSALS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT), `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE) | `tenant_id`, `store_id`, `vehicle_id`, `customer_name`, `customer_phone`, `vehicle_brand`, `vehicle_model`, `vehicle_year`, `vehicle_mileage`, `intended_value`, `notes` |
+| **LEAD_INTERESTS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT), `vehicle_id` -> `VEHICLES(id)` (ON DELETE SET NULL), `brand_id` -> `BRANDS(id)` (ON DELETE RESTRICT), `model_id` -> `MODELS(id)` (ON DELETE RESTRICT) | `tenant_id`, `store_id`, `customer_name`, `customer_phone` |
 | **VEHICLE_METRICS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE) | `vehicle_id` |
-| **VEHICLE_AUDITS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE), `user_id` -> `USERS(id)` | `vehicle_id`, `user_id` |
+| **VEHICLE_AUDITS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE), `user_id` -> `USERS(id)` (ON DELETE RESTRICT) | `vehicle_id`, `user_id` |
 | **HERO_BANNER** | `id` (UUID) | `promotion_id` -> `PROMOTIONS(id)` (ON DELETE CASCADE) | `promotion_id`, `image_path`, `title`, `redirect_url`, `duration_seconds`, `display_order` |
 
 > **Observação — `LEAD_INTERESTS`:** o lead pode se originar de um veículo específico (`vehicle_id` preenchido, com `ON DELETE SET NULL`) ou de um alerta geral de procura (`vehicle_id` nulo). Por isso, os filtros `brand_id`, `model_id`, `min_year`, `max_year` e `max_price` são todos opcionais. O campo `status` controla o funil de atendimento (`PENDENTE`, `EM_ATENDIMENTO`, `CONVERTIDO`, `ARQUIVADO`) e `notes` armazena anotações livres do atendimento.
@@ -264,10 +318,24 @@ erDiagram
 
 ## 4. Índices
 
-| Índice | Tabela | Coluna(s) |
-| :--- | :--- | :--- |
-| `idx_vehicles_status` | `vehicles` | `status` |
-| `idx_vehicles_model_id` | `vehicles` | `model_id` |
-| `idx_vehicles_category` | `vehicles` | `category` |
-| `idx_vehicles_sale_price` | `vehicles` | `sale_price` |
-| `idx_vehicles_created_at` | `vehicles` | `created_at` |
+| Índice | Tabela | Coluna(s) | Tipo / Detalhes |
+| :--- | :--- | :--- | :--- |
+| `idx_tenants_cnpj` | `tenants` | `cnpj` | UNIQUE parcial (`WHERE deleted_at IS NULL`) |
+| `idx_stores_cnpj` | `stores` | `cnpj` | UNIQUE parcial (`WHERE deleted_at IS NULL`) |
+| `idx_tenant_users_email` | `users` | `tenant_id, lower(email)` | UNIQUE parcial (`WHERE deleted_at IS NULL`) |
+| `idx_brand_tenant_global` | `brands` | `lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NULL AND deleted_at IS NULL`) |
+| `idx_brand_tenant_conditional` | `brands` | `tenant_id, lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NOT NULL AND deleted_at IS NULL`) |
+| `idx_features_tenant_global` | `features` | `lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NULL`) |
+| `idx_features_tenant_conditional` | `features` | `tenant_id, lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NOT NULL`) |
+| `idx_tenant_brand_models` | `models` | `tenant_id, brand_id` | Performance parcial (`WHERE deleted_at IS NULL`) |
+| `idx_tenant_brand` | `models` | `tenant_id, brand_id, lower(name)` | UNIQUE parcial (`WHERE deleted_at IS NULL`) |
+| `idx_tenant_store_financing_banks` | `financing_banks` | `tenant_id, store_id` | Performance composto |
+| `idx_tenant_store_vehicle` | `vehicles` | `tenant_id, store_id` | Performance parcial (`WHERE deleted_at IS NULL`) |
+| `idx_tenant_vehicle_full_license_plate` | `vehicles` | `tenant_id, full_license_plate` | UNIQUE parcial (`WHERE deleted_at IS NULL`) |
+| `idx_tenant_store_trade_in_proposal` | `trade_in_proposals` | `tenant_id, store_id` | Performance composto |
+| `idx_tenant_store_lead_interest` | `lead_interests` | `tenant_id, store_id` | Performance composto |
+| `idx_vehicles_status` | `vehicles` | `status` | Performance parcial (`WHERE deleted_at IS NULL`) |
+| `idx_vehicles_model_id` | `vehicles` | `model_id` | Performance parcial (`WHERE deleted_at IS NULL`) |
+| `idx_vehicles_category` | `vehicles` | `category` | Performance parcial (`WHERE deleted_at IS NULL`) |
+| `idx_vehicles_sale_price` | `vehicles` | `sale_price` | Performance parcial (`WHERE deleted_at IS NULL`) |
+| `idx_vehicles_created_at` | `vehicles` | `created_at` | Performance parcial (`WHERE deleted_at IS NULL`) |

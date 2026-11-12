@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { baseFindQuerySchema } from '#schemas/base.schema.js';
 
-
 const nameValidation = z.string().trim().min(2, 'O nome deve conter no mínimo 2 caracteres').max(255);
 const emailValidation = z.string().trim().email('Formato de e-mail inválido').toLowerCase();
 const passwordValidation = z
@@ -23,7 +22,8 @@ const commissionRatesValidation = z
   .max(100, 'A comissão máxima é 100%')
   .optional();
 
-
+const storeIdValidation = z.string().uuid({ message: 'ID da loja inválido' }).nullable().optional();
+const tenantIdValidation = z.string().uuid({ message: 'ID da empresa inválido' }).optional();
 
 export const createUserSchema = z.object({
   body: z.object({
@@ -33,15 +33,19 @@ export const createUserSchema = z.object({
     phone: phoneValidation,
     role: roleValidation,
     commission_rates: commissionRatesValidation,
-  })
+    store_id: storeIdValidation,
+  }),
 });
 
 export const loginUserSchema = z.object({
   body: z.object({
     email: emailValidation,
     password: z.string().min(1, 'A senha é obrigatória'),
+    tenant_id: tenantIdValidation,
   }),
 });
+
+export const loginSchema = loginUserSchema;
 
 const idValidation = z.string().uuid('ID do usuário inválido');
 
@@ -54,31 +58,31 @@ export const updateUserSchema = z.object({
     phone: phoneValidation.optional(),
     role: roleValidation.optional(),
     commission_rates: commissionRatesValidation,
-  })
+    store_id: storeIdValidation,
+  }),
 });
 
 export const deleteUserSchema = z.object({
   params: z.object({
     id: idValidation,
-  })
+  }),
 });
 
 export const findByIdUserSchema = z.object({
-  params: z.object({ id: idValidation })
+  params: z.object({ id: idValidation }),
 });
 
 export const findByEmailUserSchema = z.object({
-  query: z.object({ email: emailValidation })
+  query: z.object({ email: emailValidation }),
 });
 
 export const findUserSchema = z.object({
   query: baseFindQuerySchema.extend({
     name_like: z.string().optional(),
     email_like: z.string().optional(),
-    role: roleValidation.optional()
-  })
+    role: roleValidation.optional(),
+  }),
 });
-
 
 // Exportação de tipos
 export type CreateUserInput = z.infer<typeof createUserSchema>['body'];

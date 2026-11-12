@@ -13,11 +13,11 @@ export const authenticateJWT = async (req: Request, res: Response, next: NextFun
   const token = authHeader.split(' ')[1];
 
   try {
-    const payload = validateToken(token) as { id: string, email: string, role: string };
+    const payload = validateToken(token);
 
     const user = await userRepository.findById(payload.id);
 
-    if (user === null || user.deleted_at !== null || !user.is_active) {
+    if (user === null || user.deleted_at !== null || !user.is_active || !user.tenant_id) {
       return res.status(401).json({ message: 'Acesso negado. Token não fornecido ou inválido' });
     }
 
@@ -25,6 +25,8 @@ export const authenticateJWT = async (req: Request, res: Response, next: NextFun
       id: user.id,
       email: user.email ?? payload.email,
       role: user.role ?? payload.role,
+      tenantId: user.tenant_id,
+      storeId: user.store_id ?? null,
     };
 
     next();

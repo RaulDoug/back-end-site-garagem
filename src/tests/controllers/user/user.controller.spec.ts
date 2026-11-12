@@ -12,11 +12,14 @@ import { z } from 'zod';
 import UserController from '#controllers/user.controller.js';
 import type UserService from '#services/user.service.js';
 
+const TENANT_ID = 'tenant-123';
 const USER_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const ACTOR_ID = '9f8e7d6c-5b4a-4321-ba98-fedcba098765';
 const USER_EMAIL = 'raul.ferreira@garagem.com';
 
 const safeUser = {
   id: USER_ID,
+  tenant_id: TENANT_ID,
   name: 'Raul Ferreira',
   email: USER_EMAIL,
   phone: '(37) 99999-9999',
@@ -50,6 +53,13 @@ const createRequest = (overrides: Partial<Request> = {}) =>
     body: {},
     params: {},
     query: {},
+    user: {
+      id: ACTOR_ID,
+      email: 'admin@garagem.com',
+      role: 'ADMIN',
+      tenantId: TENANT_ID,
+      storeId: null,
+    },
     ...overrides,
   }) as unknown as Request;
 
@@ -110,7 +120,7 @@ describe('UserController', () => {
 
       await controller.register(req, res);
 
-      expect(userService.create).toHaveBeenCalledWith(body);
+      expect(userService.create).toHaveBeenCalledWith(body, TENANT_ID);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Usuário criado com sucesso!',
@@ -191,7 +201,7 @@ describe('UserController', () => {
 
       await controller.findById(req, res);
 
-      expect(userService.findById).toHaveBeenCalledWith(USER_ID);
+      expect(userService.findById).toHaveBeenCalledWith(USER_ID, TENANT_ID);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ userInfo: safeUser });
     });
@@ -211,12 +221,6 @@ describe('UserController', () => {
   });
 
   describe('find', () => {
-    const user = {
-      id: USER_ID,
-      email: USER_EMAIL,
-      role: 'ADMIN',
-    };
-
     it.each([
       ['true', { filters: [], includeDeleted: true }],
       ['false', { filters: [] }],
@@ -228,19 +232,19 @@ describe('UserController', () => {
       async (rawValue, expectedFilters) => {
         const query =
           rawValue === undefined ? {} : { include_deleted: rawValue };
-        const req = createRequest({ query, user });
+        const req = createRequest({ query });
         userService.find.mockResolvedValue([safeUser]);
 
         await controller.find(req, res);
 
-        expect(userService.find).toHaveBeenCalledWith(expectedFilters);
+        expect(userService.find).toHaveBeenCalledWith(expectedFilters, TENANT_ID);
         expect(res.status).toHaveBeenCalledWith(200);
         expect(res.json).toHaveBeenCalledWith({ users: [safeUser] });
       }
     );
 
     it('deve propagar erro desconhecido', async () => {
-      const req = createRequest({ query: {}, user });
+      const req = createRequest({ query: {} });
       const error = new Error('Falha na listagem');
       userService.find.mockRejectedValue(error);
 
@@ -261,7 +265,7 @@ describe('UserController', () => {
 
       await controller.update(req, res);
 
-      expect(userService.update).toHaveBeenCalledWith(USER_ID, body);
+      expect(userService.update).toHaveBeenCalledWith(USER_ID, body, TENANT_ID);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Usuário atualizado com sucesso!',
@@ -299,12 +303,27 @@ describe('UserController', () => {
 
       await controller.delete(req, res);
 
-      expect(userService.delete).toHaveBeenCalledWith(USER_ID);
+      expect(userService.delete).toHaveBeenCalledWith(USER_ID, TENANT_ID);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Usuário deletado com sucesso!',
         userInfo: deletedUser,
       });
+    });
+
+    it('não deve permitir que o próprio usuário se delete (400)', async () => {
+      const selfReq = createRequest({
+        params: { id: USER_ID },
+        user: { id: USER_ID, email: 'admin@garagem.com', tenantId: TENANT_ID, role: 'ADMIN', storeId: null },
+      });
+
+      await controller.delete(selfReq, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Não é possível deletar o próprio usuário.',
+      });
+      expect(userService.delete).not.toHaveBeenCalled();
     });
 
     it('deve propagar erro quando o usuário for inexistente', async () => {

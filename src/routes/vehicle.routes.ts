@@ -5,6 +5,7 @@ import { authenticateJWT } from '#middlewares/auth.middleware.js';
 import { authorizeRoles, includeDeletedValidateRole } from '#middlewares/role.middleware.js';
 import { validate } from '#middlewares/validate.middleware.js';
 import { uploadVehiclePhotos, uploadInspectionReport } from '#middlewares/upload.middleware.js';
+import { resolvePublicTenantContext } from '#middlewares/tenant.middleware.js';
 import {
   findVehicleSchema,
   findByIdVehicleSchema,
@@ -21,10 +22,10 @@ const vehicleController = new VehicleController();
 const vehicleMediaController = new VehicleMediaController();
 
 // 1. Vitrine Pública - Busca e Catálogo Geral (UC01)
-router.get('/', validate(findVehicleSchema), vehicleController.findPublic);
+router.get('/', resolvePublicTenantContext, validate(findVehicleSchema), vehicleController.findPublic);
 
 // 2. Vitrine Pública - Comparador de Veículos (UC02 - antes de /:id)
-router.get('/compare', validate(compareVehiclesSchema), vehicleController.comparePublic);
+router.get('/compare', resolvePublicTenantContext, validate(compareVehiclesSchema), vehicleController.comparePublic);
 
 // 3. Backoffice - Listagem Administrativa (UC06)
 router.get(
@@ -46,7 +47,7 @@ router.get(
 );
 
 // 5. Vitrine Pública - Detalhes do Veículo + Métrica Anti-Fraude (RN007)
-router.get('/:id', validate(findByIdVehicleSchema), vehicleController.findByIdPublic);
+router.get('/:id', resolvePublicTenantContext, validate(findByIdVehicleSchema), vehicleController.findByIdPublic);
 
 // 6. Backoffice - Cadastro de Veículo (UC06)
 router.post(

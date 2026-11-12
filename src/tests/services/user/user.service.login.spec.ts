@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import UserService from '#services/user.service.js';
 import {
   PASSWORD_HASH,
+  TENANT_ID,
   USER_EMAIL,
   USER_ID,
   USER_PASSWORD,
@@ -38,7 +39,7 @@ describe('UserService.login', () => {
     });
 
     expect(mockUserRepository.findByEmail).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.findByEmail).toHaveBeenCalledWith(USER_EMAIL);
+    expect(mockUserRepository.findByEmail).toHaveBeenCalledWith(USER_EMAIL, undefined);
     expect(resultado).toEqual({
       token: 'jwt_token_simulado',
       user: safeUser,
@@ -60,7 +61,7 @@ describe('UserService.login', () => {
     expect(bcrypt.compare).toHaveBeenCalledWith(USER_PASSWORD, PASSWORD_HASH);
   });
 
-  it('deve gerar o token com id, email, role e expiração de 30 dias', async () => {
+  it('deve gerar o token com id, email, role, tenantId, storeId e expiração de 30 dias', async () => {
     mockUserRepository.findByEmail.mockResolvedValue(buildUser());
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
     vi.mocked(jwt.sign).mockReturnValue('jwt_token_simulado' as never);
@@ -76,6 +77,8 @@ describe('UserService.login', () => {
         id: USER_ID,
         email: USER_EMAIL,
         role: 'VENDEDOR',
+        tenantId: TENANT_ID,
+        storeId: null,
       },
       expect.any(String),
       { expiresIn: '30d' }
@@ -93,7 +96,8 @@ describe('UserService.login', () => {
     ).rejects.toThrow('Credenciais inválidas');
 
     expect(mockUserRepository.findByEmail).toHaveBeenCalledWith(
-      'inexistente@garagem.com'
+      'inexistente@garagem.com',
+      undefined
     );
     expect(bcrypt.compare).not.toHaveBeenCalled();
     expect(jwt.sign).not.toHaveBeenCalled();

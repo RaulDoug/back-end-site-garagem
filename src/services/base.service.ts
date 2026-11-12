@@ -8,8 +8,8 @@ export default class BaseService<
 > {
   constructor(protected repository: BaseRepository<T, C>) {}
 
-  async findById(id: string): Promise<T> {
-    const result = await this.repository.findById(id);
+  async findById(id: string, tenantId?: string): Promise<T> {
+    const result = await this.repository.findById(id, tenantId);
 
     if (result === null) {
       throw new NotFoundError();
@@ -18,8 +18,21 @@ export default class BaseService<
     return result;
   }
 
-  async find(filters: FindData): Promise<T[]> {
-    return await this.repository.find(filters);
+  async find(filters: FindData = { filters: [] }, tenantId?: string): Promise<T[]> {
+    const effectiveFilters: FindData = {
+      ...filters,
+      filters: [...(filters?.filters || [])],
+    };
+
+    if (tenantId && !effectiveFilters.filters.some((f) => f.field === 'tenant_id')) {
+      effectiveFilters.filters.push({
+        field: 'tenant_id',
+        operator: '=',
+        value: tenantId,
+      });
+    }
+
+    return await this.repository.find(effectiveFilters);
   }
 
   async create(data: C): Promise<T> {
@@ -32,12 +45,13 @@ export default class BaseService<
     return result;
   }
 
-  async update(id: string, data: Partial<C>): Promise<T> {
+  async update(id: string, data: Partial<C>, tenantId?: unknown): Promise<T> {
     if (Object.keys(data).length === 0) {
       throw new BadRequestError('Nenhum dado informado');
     }
 
-    const result = await this.repository.update(id, data);
+    const tenantIdStr = typeof tenantId === 'string' ? tenantId : undefined;
+    const result = await this.repository.update(id, data, tenantIdStr);
 
     if (result === null) {
       throw new NotFoundError();
@@ -46,8 +60,8 @@ export default class BaseService<
     return result;
   }
 
-  async delete(id: string): Promise<T> {
-    const result = await this.repository.delete(id);
+  async delete(id: string, tenantId?: string): Promise<T> {
+    const result = await this.repository.delete(id, tenantId);
 
     if (result === null) {
       throw new NotFoundError();

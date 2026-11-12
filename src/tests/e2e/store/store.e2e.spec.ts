@@ -6,6 +6,8 @@ const {
   request,
   uniqueCnpj,
   signToken,
+  createTenant,
+  createStoreDirectly,
   validStorePayload,
   createStore,
   cleanup,
@@ -103,6 +105,27 @@ describe('E2E - /api/stores', () => {
     });
   });
 
+  describe('GET /api/stores/public/:id - Consulta Pública da Vitrine (Sem autenticação)', () => {
+    it('deve retornar dados públicos da loja sem token (200)', async () => {
+      const created = await createStore(validStorePayload({ name: 'Loja Vitrine Pública' }), adminToken);
+      const storeId = created.body.item.id;
+
+      const response = await request(app).get(`/api/stores/public/${storeId}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.item).toMatchObject({
+        id: storeId,
+        name: 'Loja Vitrine Pública',
+      });
+    });
+
+    it('deve retornar 404 ao consultar loja pública inexistente', async () => {
+      const response = await request(app).get(`/api/stores/public/${UUID_INEXISTENTE}`);
+
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe('PUT /api/stores/:id - Atualização de Loja', () => {
     it('deve atualizar os dados da loja com sucesso (200)', async () => {
       const created = await createStore(validStorePayload(), adminToken);
@@ -179,5 +202,41 @@ describe('E2E - /api/stores', () => {
       expect(response.status).toBe(403);
     });
   });
-});
 
+  describe('Isolamento Multi-Tenant (Tenant A vs Tenant B)', () => {
+    it('deve retornar 404 quando o Admin do Tenant A tentar consultar, editar ou deletar loja do Tenant B', async () => {
+      // Cria Tenant B e uma loja para Tenant B
+      const tenantB = await createTenant('Empresa Concorrente B');
+      const storeB = await createStoreDirectly(tenantB.id, {
+        name: 'Loja Exclusiva do Tenant B',
+      });
+
+      // 1. Admin do Tenant A tenta consultar loja do Tenant B -> 404
+      const getRes = await request(app)
+        .get(`/api/stores/${storeB.id}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(getRes.status).toBe(404);
+
+      // 2. Admin do Tenant A tenta editar loja do Tenant B -> 404
+      const putRes = await request(app)
+        .put(`/api/stores/${storeB.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Invasão Tentativa' });
+      expect(putRes.status).toBe(404);
+
+      // 3. Admin do Tenant A tenta deletar loja do Tenant B -> 404
+      const delRes = await request(app)
+        .delete(`/api/stores/${storeB.id}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(delRes.status).toBe(404);
+
+      // 4. Admin do Tenant A listando lojas não deve ver loja do Tenant B
+      const listRes = await request(app)
+        .get('/api/stores')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(listRes.status).toBe(200);
+      const items = listRes.body.items || [];
+      expect(items.some((item: { id: string }) => item.id === storeB.id)).toBe(false);
+    });
+  });
+});

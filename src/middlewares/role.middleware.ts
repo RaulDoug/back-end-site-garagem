@@ -14,6 +14,8 @@ export const authorizeRoles = (...allowedRoles: string[]) => {
   };
 };
 
+export const authorizeRole = (allowedRoles: string[]) => authorizeRoles(...allowedRoles);
+
 export const includeDeletedValidateRole = (req: Request, res: Response, next: NextFunction) => {
   const includeDeleted = req.query.include_deleted === 'true' ? true : false;
 

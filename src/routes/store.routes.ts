@@ -3,10 +3,20 @@ import StoreController from '#controllers/store.controller.js';
 import { authenticateJWT } from '#middlewares/auth.middleware.js';
 import { authorizeRoles, includeDeletedValidateRole } from '#middlewares/role.middleware.js';
 import { validate } from '#middlewares/validate.middleware.js';
-import { createStoreSchema, updateStoreSchema, deleteStoreSchema, findByCnpjStoreSchema, findByIdStoreSchema, findStoreSchema } from '#schemas/store.schema.js';
+import {
+  createStoreSchema,
+  updateStoreSchema,
+  deleteStoreSchema,
+  findByCnpjStoreSchema,
+  findByIdStoreSchema,
+  findStoreSchema,
+} from '#schemas/store.schema.js';
 
 const router = Router();
-const storeController =  new StoreController();
+const storeController = new StoreController();
+
+// Rota pública para visualização de dados da filial na vitrine
+router.get('/public/:id', validate(findByIdStoreSchema), storeController.getPublicById);
 
 router.use(authenticateJWT);
 

@@ -5,6 +5,7 @@ import { AppError, NotFoundError } from '#src/errors/app.error.js';
 
 const mockStore: Store = {
   id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+  tenant_id: 'tenant-123',
   name: 'Loja Exemplo',
   phone: '(37) 98888-7777',
   cnpj: '12345678000195',
@@ -45,51 +46,98 @@ describe('StoreService', () => {
       update: vi.fn(),
       delete: vi.fn(),
       find: vi.fn(),
+      findByIdAndTenant: vi.fn(),
     } as unknown as StoreRepository;
 
     storeService = new StoreService(storeRepository);
   });
 
   describe('create', () => {
-    it('deve criar uma nova loja com sucesso quando o CNPJ for inédito', async () => {
+    it('deve criar uma nova loja com sucesso quando o CNPJ for inédito e tenantId for informado', async () => {
       vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(null);
       vi.mocked(storeRepository.create).mockResolvedValue(mockStore);
 
-      const result = await storeService.create(storePayload);
+      const result = await storeService.create(storePayload, 'tenant-123');
 
       expect(storeRepository.findByCNPJ).toHaveBeenCalledWith('12345678000195');
-      expect(storeRepository.create).toHaveBeenCalledWith(storePayload);
+      expect(storeRepository.create).toHaveBeenCalledWith({
+        ...storePayload,
+        tenant_id: 'tenant-123',
+      });
       expect(result).toEqual(mockStore);
+    });
+
+    it('deve lançar AppError (401) se tenantId não for informado', async () => {
+      await expect(
+        storeService.create(storePayload, '')
+      ).rejects.toThrow(new AppError('Tenant não identificado', 401));
+
+      expect(storeRepository.create).not.toHaveBeenCalled();
     });
 
     it('deve lançar AppError com status 409 se o CNPJ já estiver cadastrado', async () => {
       vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(mockStore);
 
       await expect(
-        storeService.create({
-          ...storePayload,
-          name: 'Loja Clonada',
-        })
+        storeService.create(
+          {
+            ...storePayload,
+            name: 'Loja Clonada',
+          },
+          'tenant-123'
+        )
       ).rejects.toThrow(new AppError('CNPJ já cadastrado', 409));
 
       expect(storeRepository.create).not.toHaveBeenCalled();
     });
   });
 
+  describe('find', () => {
+    it('deve filtrar por tenant_id ao listar lojas', async () => {
+      vi.mocked(storeRepository.find).mockResolvedValue([mockStore]);
+
+      const result = await storeService.find({ filters: [] }, 'tenant-123');
+
+      expect(storeRepository.find).toHaveBeenCalledWith({
+        filters: [{ field: 'tenant_id', operator: '=', value: 'tenant-123' }],
+      });
+      expect(result).toEqual([mockStore]);
+    });
+  });
+
   describe('findById', () => {
-    it('deve retornar a loja quando o ID existir', async () => {
+    it('deve retornar a loja quando o ID existir para o tenantId', async () => {
       vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
 
-      const result = await storeService.findById(mockStore.id);
+      const result = await storeService.findById(mockStore.id, 'tenant-123');
+
+      expect(storeRepository.findById).toHaveBeenCalledWith(mockStore.id, 'tenant-123');
+      expect(result).toEqual(mockStore);
+    });
+
+    it('deve lançar NotFoundError (404) quando o ID não for encontrado no tenant', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(null);
+
+      await expect(storeService.findById('id-inexistente', 'tenant-123')).rejects.toThrow(
+        NotFoundError
+      );
+    });
+  });
+
+  describe('findPublicById', () => {
+    it('deve retornar dados públicos da loja quando o ID existir', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
+
+      const result = await storeService.findPublicById(mockStore.id);
 
       expect(storeRepository.findById).toHaveBeenCalledWith(mockStore.id);
       expect(result).toEqual(mockStore);
     });
 
-    it('deve lançar NotFoundError (404) quando o ID não for encontrado', async () => {
+    it('deve lançar NotFoundError (404) quando a loja pública não existir', async () => {
       vi.mocked(storeRepository.findById).mockResolvedValue(null);
 
-      await expect(storeService.findById('id-inexistente')).rejects.toThrow(
+      await expect(storeService.findPublicById('id-inexistente')).rejects.toThrow(
         NotFoundError
       );
     });
@@ -117,16 +165,20 @@ describe('StoreService', () => {
   describe('update', () => {
     it('deve atualizar dados da loja sem alterar CNPJ', async () => {
       const updatedStore = { ...mockStore, name: 'Novo Nome' };
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
       vi.mocked(storeRepository.update).mockResolvedValue(updatedStore);
 
       const result = await storeService.update(mockStore.id, {
         name: 'Novo Nome',
-      });
+      }, 'tenant-123');
 
+      expect(storeRepository.findById).toHaveBeenCalledWith(mockStore.id, 'tenant-123');
       expect(storeRepository.findByCNPJ).not.toHaveBeenCalled();
-      expect(storeRepository.update).toHaveBeenCalledWith(mockStore.id, {
-        name: 'Novo Nome',
-      });
+      expect(storeRepository.update).toHaveBeenCalledWith(
+        mockStore.id,
+        { name: 'Novo Nome' },
+        'tenant-123'
+      );
       expect(result).toEqual(updatedStore);
     });
 
@@ -134,23 +186,33 @@ describe('StoreService', () => {
       const newCnpj = '98765432000110';
       const updatedStore = { ...mockStore, cnpj: newCnpj };
 
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
       vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(null);
       vi.mocked(storeRepository.update).mockResolvedValue(updatedStore);
 
-      const result = await storeService.update(mockStore.id, { cnpj: newCnpj });
+      const result = await storeService.update(mockStore.id, { cnpj: newCnpj }, 'tenant-123');
 
       expect(storeRepository.findByCNPJ).toHaveBeenCalledWith(newCnpj);
-      expect(storeRepository.update).toHaveBeenCalledWith(mockStore.id, { cnpj: newCnpj });
+      expect(storeRepository.update).toHaveBeenCalledWith(
+        mockStore.id,
+        { cnpj: newCnpj },
+        'tenant-123'
+      );
       expect(result).toEqual(updatedStore);
     });
 
     it('deve permitir atualizar mantendo o mesmo CNPJ da própria loja', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
       vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(mockStore);
       vi.mocked(storeRepository.update).mockResolvedValue(mockStore);
 
-      const result = await storeService.update(mockStore.id, { cnpj: mockStore.cnpj });
+      const result = await storeService.update(mockStore.id, { cnpj: mockStore.cnpj }, 'tenant-123');
 
-      expect(storeRepository.update).toHaveBeenCalledWith(mockStore.id, { cnpj: mockStore.cnpj });
+      expect(storeRepository.update).toHaveBeenCalledWith(
+        mockStore.id,
+        { cnpj: mockStore.cnpj },
+        'tenant-123'
+      );
       expect(result).toEqual(mockStore);
     });
 
@@ -161,38 +223,41 @@ describe('StoreService', () => {
         cnpj: '98765432000110',
       };
 
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
       vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(otherStore);
 
       await expect(
-        storeService.update(mockStore.id, { cnpj: otherStore.cnpj })
+        storeService.update(mockStore.id, { cnpj: otherStore.cnpj }, 'tenant-123')
       ).rejects.toThrow(new AppError('CNPJ já em uso por outra loja', 409));
 
       expect(storeRepository.update).not.toHaveBeenCalled();
     });
 
-    it('deve lançar NotFoundError (404) se a loja a ser atualizada não existir', async () => {
-      vi.mocked(storeRepository.update).mockResolvedValue(null);
+    it('deve lançar NotFoundError (404) se a loja a ser atualizada não existir no tenant', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(null);
 
       await expect(
-        storeService.update('id-inexistente', { name: 'Loja' })
+        storeService.update('id-inexistente', { name: 'Loja' }, 'tenant-123')
       ).rejects.toThrow(NotFoundError);
     });
   });
 
   describe('delete', () => {
-    it('deve remover a loja com sucesso', async () => {
+    it('deve remover a loja com sucesso dentro do tenant', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
       vi.mocked(storeRepository.delete).mockResolvedValue(mockStore);
 
-      const result = await storeService.delete(mockStore.id);
+      const result = await storeService.delete(mockStore.id, 'tenant-123');
 
-      expect(storeRepository.delete).toHaveBeenCalledWith(mockStore.id);
+      expect(storeRepository.findById).toHaveBeenCalledWith(mockStore.id, 'tenant-123');
+      expect(storeRepository.delete).toHaveBeenCalledWith(mockStore.id, 'tenant-123');
       expect(result).toEqual(mockStore);
     });
 
-    it('deve lançar NotFoundError (404) ao tentar deletar loja inexistente', async () => {
-      vi.mocked(storeRepository.delete).mockResolvedValue(null);
+    it('deve lançar NotFoundError (404) ao tentar deletar loja inexistente no tenant', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(null);
 
-      await expect(storeService.delete('id-inexistente')).rejects.toThrow(
+      await expect(storeService.delete('id-inexistente', 'tenant-123')).rejects.toThrow(
         NotFoundError
       );
     });

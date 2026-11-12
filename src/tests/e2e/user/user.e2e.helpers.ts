@@ -1,57 +1,74 @@
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import app from '#src/app.js';
 import pool from '#src/config/database.js';
 import { beforeAll } from 'vitest';
 
-// O registerLimit permite apenas 5 cadastros por IP a cada hora e o loginLimit
-// permite 5 tentativas por IP a cada 15 minutos. Cada arquivo de teste cria um
-// contexto isolado, com uma faixa de IP própria, para evitar colisões entre as
-// suítes. Os testes de rate limit usam um IP fixo e exclusivo.
 app.set('trust proxy', 1);
 
 export const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'default-secret';
+export const DEFAULT_USER_TENANT_ID = '22222222-2222-4222-8222-222222222222';
 
 export type TokenRole = 'ADMIN' | 'VENDEDOR' | 'VISUALIZADOR' | 'PUBLICO';
 
-const SEED_USERS: Record<TokenRole, { id: string; email: string; role: TokenRole }> = {
-  ADMIN: {
-    id: '4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b',
-    email: 'usuario.token@garagem.com',
-    role: 'ADMIN',
-  },
-  VENDEDOR: {
-    id: '4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7c',
-    email: 'vendedor.token@garagem.com',
-    role: 'VENDEDOR',
-  },
-  VISUALIZADOR: {
-    id: '4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7d',
-    email: 'visualizador.token@garagem.com',
-    role: 'VISUALIZADOR',
-  },
-  PUBLICO: {
-    id: '4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7e',
-    email: 'publico.token@garagem.com',
-    role: 'PUBLICO',
-  },
-};
-
 export const createUserE2EContext = () => {
+  const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const contextTenantId = randomUUID();
+  const createdTenantIds = new Set<string>();
+  const createdEmails = new Set<string>();
+
+  const seedUsers: Record<TokenRole, { id: string; email: string; role: TokenRole }> = {
+    ADMIN: {
+      id: randomUUID(),
+      email: `admin_${runId}@garagem.com`,
+      role: 'ADMIN',
+    },
+    VENDEDOR: {
+      id: randomUUID(),
+      email: `vendedor_${runId}@garagem.com`,
+      role: 'VENDEDOR',
+    },
+    VISUALIZADOR: {
+      id: randomUUID(),
+      email: `viewer_${runId}@garagem.com`,
+      role: 'VISUALIZADOR',
+    },
+    PUBLICO: {
+      id: randomUUID(),
+      email: `publico_${runId}@garagem.com`,
+      role: 'PUBLICO',
+    },
+  };
+
   beforeAll(async () => {
+    // 1. Cria Tenant isolado para este contexto
+    const cnpj = `${Math.floor(10000000000000 + Math.random() * 90000000000000)}`.slice(0, 14);
+    await pool.query(
+      `INSERT INTO tenants (id, corporate_name, trade_name, cnpj, is_active)
+       VALUES ($1, $2, $3, $4, true);`,
+      [
+        contextTenantId,
+        `Tenant User E2E ${runId}`,
+        `Garagem User E2E ${runId}`,
+        cnpj,
+      ]
+    );
+
+    // 2. Garante que os usuários do token existam vinculados ao tenant deste contexto
     const query = `
-      INSERT INTO users (id, name, email, password_hash, phone, role, commission_rates, is_active)
-      VALUES ($1, $2, $3, $4, $5, $6::users_roles_types, $7, $8)
-      ON CONFLICT (id) DO UPDATE SET deleted_at = NULL, is_active = TRUE, role = EXCLUDED.role;
+      INSERT INTO users (id, tenant_id, name, email, password_hash, phone, role, commission_rates, is_active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::users_roles_types, $8, $9);
     `;
 
-    for (const seed of Object.values(SEED_USERS)) {
+    for (const seed of Object.values(seedUsers)) {
       await pool.query(query, [
         seed.id,
+        contextTenantId,
         `Usuário ${seed.role}`,
         seed.email,
         '$2b$10$KIXQJ1Z5F1Z5F1Z5F1Z5F.1Z5F1Z5F1Z5F1Z5F1Z5F1Z5F1Z5F1Z5F',
@@ -63,38 +80,49 @@ export const createUserE2EContext = () => {
     }
   });
 
-  const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const emailPrefix = `e2e_${runId}_`;
   const ipBlock = Math.floor(Math.random() * 240) + 10;
-  const createdEmails = new Set<string>();
   let ipSequence = 0;
 
   const uniqueEmail = (label: string) => `${emailPrefix}${label}@teste.com`;
 
   const nextIp = () => {
     ipSequence += 1;
-
     const thirdOctet = Math.floor((ipSequence - 1) / 250);
     const fourthOctet = ((ipSequence - 1) % 250) + 1;
-
     return `10.${ipBlock}.${thirdOctet}.${fourthOctet}`;
   };
 
   const signToken = (
     role: TokenRole,
     options: SignOptions = {},
-    secret = JWT_SECRET
+    secret = JWT_SECRET,
+    tenantId: string = contextTenantId
   ) => {
-    const seed = SEED_USERS[role] || SEED_USERS.ADMIN;
+    const seed = seedUsers[role] || seedUsers.ADMIN;
     return jwt.sign(
       {
         id: seed.id,
         email: seed.email,
         role,
+        tenantId,
+        storeId: null,
       },
       secret,
       { expiresIn: '1h', ...options }
     );
+  };
+
+  const createTenant = async (name = 'Outro Tenant') => {
+    const cnpj = `${String(Math.floor(1000000000 + Math.random() * 9000000000)).slice(0, 10)}${Math.floor(1000 + Math.random() * 9000)}`;
+    const res = await pool.query(
+      `INSERT INTO tenants (corporate_name, trade_name, cnpj, is_active)
+       VALUES ($1, $2, $3, true) RETURNING id, cnpj;`,
+      [`${name} Corp`, name, cnpj.slice(0, 14)]
+    );
+    const tenant = res.rows[0];
+    createdTenantIds.add(tenant.id);
+    return tenant;
   };
 
   const register = async (
@@ -153,8 +181,16 @@ export const createUserE2EContext = () => {
       await pool.query('DELETE FROM users WHERE email = ANY($1::text[])', [
         Array.from(createdEmails),
       ]);
+      createdEmails.clear();
     }
-
+    await pool.query('DELETE FROM users WHERE tenant_id = $1', [contextTenantId]);
+    await pool.query('DELETE FROM tenants WHERE id = $1', [contextTenantId]);
+    if (createdTenantIds.size > 0) {
+      const ids = Array.from(createdTenantIds);
+      await pool.query('DELETE FROM users WHERE tenant_id = ANY($1::uuid[])', [ids]);
+      await pool.query('DELETE FROM tenants WHERE id = ANY($1::uuid[])', [ids]);
+      createdTenantIds.clear();
+    }
     await pool.end();
   };
 
@@ -169,6 +205,7 @@ export const createUserE2EContext = () => {
     login,
     validRegisterPayload,
     signToken,
+    createTenant,
     cleanup,
   };
 };

@@ -3,6 +3,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -14,16 +15,15 @@ import {
 import pool from '#src/config/database.js';
 
 const repository = new StoreRepository();
-const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-const createdCnpjs = new Set<string>();
+const createdTenantIds = new Set<string>();
 let sequence = 0;
 
 // Gera CNPJ único de 14 dígitos para evitar colisões entre testes
-const uniqueCnpj = () => {
-  const seq = String(++sequence).padStart(4, '0');
-  const base = `${RUN_ID.replace(/\D/g, '').padEnd(10, '0').slice(0, 10)}${seq}`;
-  return base.slice(0, 14);
-};
+const uniqueCnpj = () =>
+  `${Math.floor(1000000000 + Math.random() * 9000000000)}${String(++sequence).padStart(4, '0')}`;
+
+let tenantA: { id: string; cnpj: string };
+let tenantB: { id: string; cnpj: string };
 
 const createRepositoryStore = async (
   label: string,
@@ -31,6 +31,7 @@ const createRepositoryStore = async (
 ) => {
   const cnpj = overrides.cnpj || uniqueCnpj();
   const store = await repository.create({
+    tenant_id: tenantA.id,
     name: `Loja ${label}`,
     phone: '(37) 98888-7777',
     cnpj,
@@ -44,7 +45,6 @@ const createRepositoryStore = async (
     ...overrides,
   });
 
-  createdCnpjs.add(store.cnpj);
   return store;
 };
 
@@ -57,13 +57,29 @@ describe('StoreRepository - integração com PostgreSQL', () => {
     }
   });
 
-  afterEach(async () => {
-    if (createdCnpjs.size === 0) return;
+  beforeEach(async () => {
+    const resA = await pool.query(
+      'INSERT INTO tenants (corporate_name, trade_name, cnpj) VALUES ($1, $2, $3) RETURNING id, cnpj',
+      ['Tenant A Corp', 'Tenant A Trade', uniqueCnpj()]
+    );
+    tenantA = resA.rows[0];
+    createdTenantIds.add(tenantA.id);
 
-    await pool.query('DELETE FROM stores WHERE cnpj = ANY($1::text[])', [
-      Array.from(createdCnpjs),
-    ]);
-    createdCnpjs.clear();
+    const resB = await pool.query(
+      'INSERT INTO tenants (corporate_name, trade_name, cnpj) VALUES ($1, $2, $3) RETURNING id, cnpj',
+      ['Tenant B Corp', 'Tenant B Trade', uniqueCnpj()]
+    );
+    tenantB = resB.rows[0];
+    createdTenantIds.add(tenantB.id);
+  });
+
+  afterEach(async () => {
+    if (createdTenantIds.size === 0) return;
+
+    const ids = Array.from(createdTenantIds);
+    await pool.query('DELETE FROM stores WHERE tenant_id = ANY($1::uuid[])', [ids]);
+    await pool.query('DELETE FROM tenants WHERE id = ANY($1::uuid[])', [ids]);
+    createdTenantIds.clear();
   });
 
   afterAll(async () => {
@@ -78,6 +94,7 @@ describe('StoreRepository - integração com PostgreSQL', () => {
     expect(found).not.toBeNull();
     expect(found).toMatchObject({
       id: store.id,
+      tenant_id: tenantA.id,
       name: store.name,
       cnpj: store.cnpj,
       phone: store.phone,
@@ -114,6 +131,7 @@ describe('StoreRepository - integração com PostgreSQL', () => {
 
     await expect(
       repository.create({
+        tenant_id: tenantA.id,
         name: 'Loja Duplicada',
         phone: '(37) 91111-2222',
         cnpj: store.cnpj,
@@ -135,6 +153,7 @@ describe('StoreRepository - integração com PostgreSQL', () => {
 
     // Como firstStore está com deleted_at preenchido, o índice parcial permite reutilizar o CNPJ
     const secondStore = await repository.create({
+      tenant_id: tenantA.id,
       name: 'Segunda Loja Reutilizando CNPJ',
       phone: '(37) 93333-4444',
       cnpj: firstStore.cnpj,
@@ -146,10 +165,61 @@ describe('StoreRepository - integração com PostgreSQL', () => {
       state: 'MG',
     });
 
-    createdCnpjs.add(secondStore.cnpj);
-
     expect(secondStore.id).not.toBe(firstStore.id);
     expect(secondStore.cnpj).toBe(firstStore.cnpj);
     expect(secondStore.deleted_at).toBeNull();
+  });
+
+  it('deve filtrar lojas por tenant_id no find e findById', async () => {
+    const storeA = await createRepositoryStore('tenant_A');
+    const storeB = await createRepositoryStore('tenant_B', {
+      tenant_id: tenantB.id,
+    });
+
+    const foundA = await repository.findById(storeA.id, tenantA.id);
+    expect(foundA).not.toBeNull();
+    expect(foundA?.id).toBe(storeA.id);
+
+    const crossFound = await repository.findById(storeA.id, tenantB.id);
+    expect(crossFound).toBeNull();
+
+    const storesForTenantA = await repository.find({
+      filters: [{ field: 'tenant_id', operator: '=', value: tenantA.id }],
+    });
+    expect(storesForTenantA.some((s) => s.id === storeA.id)).toBe(true);
+    expect(storesForTenantA.some((s) => s.id === storeB.id)).toBe(false);
+  });
+
+  it('não deve permitir que tenantB atualize ou delete uma loja pertencente ao tenantA', async () => {
+    const storeA = await createRepositoryStore('alvo_isolamento');
+
+    const updateAttempt = await repository.update(
+      storeA.id,
+      { name: 'Nome Hackeado' },
+      tenantB.id
+    );
+    expect(updateAttempt).toBeNull();
+
+    const checkStore = await repository.findById(storeA.id, tenantA.id);
+    expect(checkStore?.name).toBe(storeA.name);
+
+    const deleteAttempt = await repository.delete(storeA.id, tenantB.id);
+    expect(deleteAttempt).toBeNull();
+
+    const afterDeleteCheck = await repository.findById(storeA.id, tenantA.id);
+    expect(afterDeleteCheck).not.toBeNull();
+    expect(afterDeleteCheck?.deleted_at).toBeNull();
+  });
+
+  it('findByIdAndTenant(id, tenantId) deve retornar a loja apenas se pertencer ao tenantId informado', async () => {
+    const storeA = await createRepositoryStore('busca_tenant');
+
+    const match = await repository.findByIdAndTenant(storeA.id, tenantA.id);
+    expect(match).not.toBeNull();
+    expect(match?.id).toBe(storeA.id);
+    expect(match?.tenant_id).toBe(tenantA.id);
+
+    const mismatch = await repository.findByIdAndTenant(storeA.id, tenantB.id);
+    expect(mismatch).toBeNull();
   });
 });

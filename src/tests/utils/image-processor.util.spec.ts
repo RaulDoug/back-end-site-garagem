@@ -29,7 +29,9 @@ describe('image-processor util', () => {
       if (fs.existsSync(filePath)) {
         try {
           fs.unlinkSync(filePath);
-        } catch {}
+        } catch {
+          // Ignora se arquivo já foi excluído
+        }
       }
     }
   });

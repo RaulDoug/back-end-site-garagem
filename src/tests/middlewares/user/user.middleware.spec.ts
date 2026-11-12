@@ -97,12 +97,22 @@ describe('authenticateJWT', () => {
       id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
       email: 'raul.ferreira@garagem.com',
       role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
     };
     const req = createRequest({
       headers: { authorization: 'Bearer token-valido' },
     });
     mockedValidateToken.mockReturnValue(payload as never);
-    mockedFindById.mockResolvedValue({ id: payload.id, deleted_at: null, is_active: true } as never);
+    mockedFindById.mockResolvedValue({
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenant_id: 'tenant-uuid-1',
+      store_id: null,
+      deleted_at: null,
+      is_active: true,
+    } as never);
 
     await authenticateJWT(req, res, next);
 
@@ -135,6 +145,8 @@ describe('authenticateJWT', () => {
       id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
       email: 'raul.ferreira@garagem.com',
       role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
     };
     const req = createRequest({
       headers: { authorization: 'Bearer token-valido' },
@@ -156,6 +168,8 @@ describe('authenticateJWT', () => {
       id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
       email: 'antigo@garagem.com',
       role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
     };
     const req = createRequest({
       headers: { authorization: 'Bearer token-valido' },
@@ -165,6 +179,8 @@ describe('authenticateJWT', () => {
       id: payload.id,
       email: 'novo@garagem.com',
       role: 'VISUALIZADOR',
+      tenant_id: 'tenant-uuid-1',
+      store_id: null,
       deleted_at: null,
       is_active: true,
     } as never);
@@ -175,8 +191,74 @@ describe('authenticateJWT', () => {
       id: payload.id,
       email: 'novo@garagem.com',
       role: 'VISUALIZADOR',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
     });
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('deve popular req.user.tenantId e req.user.storeId a partir do registro atualizado do banco de dados', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'raul.ferreira@garagem.com',
+      role: 'ADMIN',
+      tenantId: 'tenant-token',
+      storeId: null,
+    };
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindById.mockResolvedValue({
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenant_id: 'tenant-db-updated',
+      store_id: 'store-db-updated',
+      deleted_at: null,
+      is_active: true,
+    } as never);
+
+    await authenticateJWT(req, res, next);
+
+    expect(req.user).toEqual({
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenantId: 'tenant-db-updated',
+      storeId: 'store-db-updated',
+    });
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('deve retornar 401 se o usuário retornado do banco não possuir tenant_id vinculado', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'raul.ferreira@garagem.com',
+      role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
+    };
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindById.mockResolvedValue({
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenant_id: null,
+      deleted_at: null,
+      is_active: true,
+    } as never);
+
+    await authenticateJWT(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Acesso negado. Token não fornecido ou inválido',
+    });
+    expect(next).not.toHaveBeenCalled();
   });
 });
 
@@ -209,6 +291,8 @@ describe('authorizeRoles', () => {
         id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
         email: 'visualizador@garagem.com',
         role: 'VISUALIZADOR',
+        tenantId: 'tenant-uuid-1',
+        storeId: null,
       },
     });
     const middleware = authorizeRoles('ADMIN', 'VENDEDOR');
@@ -228,6 +312,8 @@ describe('authorizeRoles', () => {
         id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
         email: 'vendedor@garagem.com',
         role: 'VENDEDOR',
+        tenantId: 'tenant-uuid-1',
+        storeId: null,
       },
     });
     const middleware = authorizeRoles('ADMIN', 'VENDEDOR');
@@ -333,8 +419,16 @@ describe('includeDeletedValidateRole', () => {
     next = vi.fn() as unknown as NextFunction;
   });
 
+  const baseTestUser = {
+    id: 'user-id-1',
+    email: 'user@garagem.com',
+    role: 'VENDEDOR',
+    tenantId: 'tenant-1',
+    storeId: null,
+  };
+
   it('deve chamar next quando include_deleted não for enviado', () => {
-    const req = createRequest({ query: {}, user: { role: 'VENDEDOR' } as any });
+    const req = createRequest({ query: {}, user: baseTestUser });
 
     includeDeletedValidateRole(req, res, next);
 
@@ -343,7 +437,7 @@ describe('includeDeletedValidateRole', () => {
   });
 
   it('deve chamar next quando include_deleted=false mesmo se não for ADMIN', () => {
-    const req = createRequest({ query: { include_deleted: 'false' }, user: { role: 'VENDEDOR' } as any });
+    const req = createRequest({ query: { include_deleted: 'false' }, user: baseTestUser });
 
     includeDeletedValidateRole(req, res, next);
 
@@ -352,7 +446,10 @@ describe('includeDeletedValidateRole', () => {
   });
 
   it('deve chamar next quando include_deleted=true e o usuário for ADMIN', () => {
-    const req = createRequest({ query: { include_deleted: 'true' }, user: { role: 'ADMIN' } as any });
+    const req = createRequest({
+      query: { include_deleted: 'true' },
+      user: { ...baseTestUser, role: 'ADMIN' },
+    });
 
     includeDeletedValidateRole(req, res, next);
 
@@ -361,7 +458,10 @@ describe('includeDeletedValidateRole', () => {
   });
 
   it('deve retornar 403 quando include_deleted=true e o usuário for VENDEDOR', () => {
-    const req = createRequest({ query: { include_deleted: 'true' }, user: { role: 'VENDEDOR' } as any });
+    const req = createRequest({
+      query: { include_deleted: 'true' },
+      user: baseTestUser,
+    });
 
     includeDeletedValidateRole(req, res, next);
 

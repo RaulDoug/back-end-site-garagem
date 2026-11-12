@@ -2,11 +2,28 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -------------------------------------------------
+-- Tabela de tenant (tenants)
+-------------------------------------------------
+
+CREATE TABLE tenants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  corporate_name VARCHAR(255) NOT NULL,
+  trade_name VARCHAR(255) NOT NULL,
+  cnpj VARCHAR(18) NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT now(),
+  deleted_at TIMESTAMP DEFAULT NULL
+);
+
+CREATE UNIQUE INDEX idx_tenants_cnpj ON tenants(cnpj) WHERE deleted_at IS NULL;
+
+-------------------------------------------------
 -- Tabela de loja (store)
 -------------------------------------------------
 
 CREATE TABLE stores (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
   name VARCHAR(255) NOT NULL,
   phone VARCHAR(15) NOT NULL,
   zip_code VARCHAR(8) NOT NULL,
@@ -19,8 +36,10 @@ CREATE TABLE stores (
   cnpj VARCHAR(18) NOT NULL,
   is_active BOOLEAN DEFAULT true,
   deleted_at TIMESTAMP DEFAULT NULL,
-  created_at TIMESTAMP DEFAULT now()
+  created_at TIMESTAMP DEFAULT now(),
+  CONSTRAINT fk_tenant_stores FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
 );
+
 
 CREATE UNIQUE INDEX idx_stores_cnpj ON stores(cnpj) WHERE deleted_at IS NULL;
 
@@ -35,6 +54,8 @@ CREATE TYPE users_roles_types AS ENUM ('ADMIN', 'VENDEDOR', 'VISUALIZADOR', 'PUB
 
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  store_id UUID,
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
@@ -43,10 +64,12 @@ CREATE TABLE users (
   commission_rates DECIMAL(5, 2),
   is_active BOOLEAN DEFAULT true,
   deleted_at TIMESTAMP DEFAULT NULL,
-  created_at TIMESTAMP DEFAULT now()
+  created_at TIMESTAMP DEFAULT now(),
+  CONSTRAINT fk_tenant_users FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_stores_users FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE RESTRICT
 );
 
-CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_tenant_users_email ON users(tenant_id, lower(email)) WHERE deleted_at IS NULL;
 
 -------------------------------------------------
 -- Tabela de marca (brands)
@@ -54,11 +77,16 @@ CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
 
 CREATE TABLE brands (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID,
   name VARCHAR(255) NOT NULL,
   is_active BOOLEAN DEFAULT true,
   deleted_at TIMESTAMP DEFAULT NULL,
-  created_at TIMESTAMP DEFAULT now()
+  created_at TIMESTAMP DEFAULT now(),
+  CONSTRAINT fk_tenant_brands FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
 );
+
+CREATE UNIQUE INDEX idx_brand_tenant_global ON brands(lower(name)) WHERE tenant_id IS NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_brand_tenant_conditional ON brands(tenant_id, lower(name)) WHERE tenant_id IS NOT NULL AND deleted_at IS NULL;
 
 -------------------------------------------------
 -- Tabela de opcionais (features)
@@ -66,8 +94,13 @@ CREATE TABLE brands (
 
 CREATE TABLE features (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name VARCHAR(255) NOT NULL UNIQUE
+  tenant_id UUID,
+  name VARCHAR(255) NOT NULL,
+  CONSTRAINT fk_tenant_features FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
 );
+
+CREATE UNIQUE INDEX idx_features_tenant_global ON features(lower(name)) WHERE tenant_id IS NULL;
+CREATE UNIQUE INDEX idx_features_tenant_conditional ON features(tenant_id, lower(name)) WHERE tenant_id IS NOT NULL;
 
 -------------------------------------------------
 -- Tabela de promoções (promotions)
@@ -75,11 +108,15 @@ CREATE TABLE features (
 
 CREATE TABLE promotions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  store_id UUID NOT NULL,
   name VARCHAR(255) NOT NULL,
   description VARCHAR(255),
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
-  is_active BOOLEAN DEFAULT true
+  is_active BOOLEAN DEFAULT true,
+  CONSTRAINT fk_tenant_promotion FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_store_promotion FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE RESTRICT
 );
 
 -------------------------------------------------
@@ -88,13 +125,18 @@ CREATE TABLE promotions (
 
 CREATE TABLE models (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
   brand_id UUID NOT NULL,
   name VARCHAR(255) NOT NULL,
   is_active BOOLEAN DEFAULT true,
   deleted_at TIMESTAMP DEFAULT NULL,
   created_at TIMESTAMP DEFAULT now(),
-  CONSTRAINT fk_models_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE RESTRICT
+  CONSTRAINT fk_model_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_model_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE RESTRICT
 );
+
+CREATE INDEX idx_tenant_brand_models ON models(tenant_id, brand_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_tenant_brand ON models(tenant_id, brand_id, lower(name)) WHERE deleted_at IS NULL;
 
 -------------------------------------------------
 -- Tabela de banco de financiamento (financing_banks) - depende de store
@@ -102,13 +144,17 @@ CREATE TABLE models (
 
 CREATE TABLE financing_banks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
   store_id UUID NOT NULL,
   name VARCHAR(255) NOT NULL,
   display_order INTEGER NOT NULL,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT now(),
-  CONSTRAINT fk_fb_store FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE
+  CONSTRAINT fk_tenant_fb FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_fb_store FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE RESTRICT
 );
+
+CREATE INDEX idx_tenant_store_financing_banks ON financing_banks(tenant_id, store_id);
 
 -------------------------------------------------
 -- Tabela de hero banner (hero_banner) - depende de promotion
@@ -186,6 +232,7 @@ CREATE TYPE vehicle_status_types AS ENUM ('ATIVO', 'RESERVADO', 'EM_NEGOCIACAO',
 
 CREATE TABLE vehicles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
   store_id UUID NOT NULL,
   registered_by_user_id UUID NOT NULL,
   sold_by_user_id UUID,
@@ -227,14 +274,16 @@ CREATE TABLE vehicles (
   created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP,
   deleted_at TIMESTAMP DEFAULT NULL,
-  CONSTRAINT fk_store_vehicle FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE,
+  CONSTRAINT fk_tenant_vehicle FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_store_vehicle FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE RESTRICT,
   CONSTRAINT fk_register_user_vehicle FOREIGN KEY (registered_by_user_id) REFERENCES users(id),
   CONSTRAINT fk_sold_user_vehicle FOREIGN KEY (sold_by_user_id) REFERENCES users(id),
   CONSTRAINT fk_model_vehicle FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE RESTRICT,
   CONSTRAINT fk_promotion_vehicle FOREIGN KEY (promotion_id) REFERENCES promotions(id) ON DELETE SET NULL
 );
 
-CREATE UNIQUE INDEX idx_vehicles_full_license_plate ON vehicles(full_license_plate) WHERE deleted_at IS NULL;
+CREATE INDEX idx_tenant_store_vehicle ON vehicles(tenant_id, store_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_tenant_vehicle_full_license_plate ON vehicles(tenant_id, full_license_plate) WHERE deleted_at IS NULL;
 
 -------------------------------------------------
 -- Tabela de foto do veículo (vehicle_photos)
@@ -262,6 +311,8 @@ CREATE TYPE trade_in_proposals_status_types AS ENUM ('PENDENTE', 'EM_AVALIACAO',
 
 CREATE TABLE trade_in_proposals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  store_id UUID NOT NULL,
   vehicle_id UUID NOT NULL,
   customer_name VARCHAR(255) NOT NULL,
   customer_phone VARCHAR(15) NOT NULL,
@@ -275,8 +326,12 @@ CREATE TABLE trade_in_proposals (
   notes TEXT NOT NULL,
   status trade_in_proposals_status_types DEFAULT 'PENDENTE',
   created_at TIMESTAMP DEFAULT now(),
-  CONSTRAINT fk_vehicle_trad_in_proposals FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
+  CONSTRAINT fk_tenant_trade_in_proposals FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_store_trade_in_proposals FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_vehicle_trade_in_proposals FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
 );
+
+CREATE INDEX idx_tenant_store_trade_in_proposal ON trade_in_proposals(tenant_id, store_id);
 
 -------------------------------------------------
 -- Tabela de lead interessado (lead_interests)
@@ -284,6 +339,8 @@ CREATE TABLE trade_in_proposals (
 
 CREATE TABLE lead_interests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  store_id UUID NOT NULL,
   customer_name VARCHAR(255) NOT NULL,
   customer_phone VARCHAR(255) NOT NULL,
   preferred_channel lead_preferred_channel_type DEFAULT 'WHATSAPP',
@@ -297,10 +354,14 @@ CREATE TABLE lead_interests (
   status lead_status_type DEFAULT 'PENDENTE',
   notes TEXT,
   created_at TIMESTAMP DEFAULT now(),
+  CONSTRAINT fk_tenant_lead_interest FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_store_lead_interest FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE RESTRICT,
   CONSTRAINT fk_vehicle_lead_interest FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
   CONSTRAINT fk_brand_lead_interest FOREIGN KEY (brand_id) REFERENCES brands(id),
   CONSTRAINT fk_model_lead_interest FOREIGN KEY (model_id) REFERENCES models(id)
 );
+
+CREATE INDEX idx_tenant_store_lead_interest ON lead_interests(tenant_id, store_id);
 
 -------------------------------------------------
 -- Tabela de métricas do veículo (vehicle_metrics)

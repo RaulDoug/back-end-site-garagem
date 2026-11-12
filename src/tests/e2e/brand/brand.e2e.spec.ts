@@ -7,6 +7,9 @@ const {
   uniqueBrandName,
   signToken,
   createBrand,
+  createGlobalBrand,
+  createTenant,
+  createTenantUser,
   cleanup,
 } = createBrandE2EContext();
 
@@ -121,6 +124,72 @@ describe('E2E - /api/brands', () => {
         .get(`/api/brands/${brandId}`)
         .set('Authorization', `Bearer ${adminToken}`);
       expect(checkRes.status).toBe(404);
+    });
+  });
+
+  describe('Multi-tenant & Catálogo Híbrido de Marcas', () => {
+    it('deve permitir listar e consultar marca global (tenant_id IS NULL)', async () => {
+      const globalBrand = await createGlobalBrand(uniqueBrandName());
+
+      const res = await request(app)
+        .get(`/api/brands/${globalBrand.id}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.item.id).toBe(globalBrand.id);
+      expect(res.body.item.tenant_id).toBeNull();
+    });
+
+    it('deve impedir alteração (PUT) de marca global retornando 403 Forbidden', async () => {
+      const globalBrand = await createGlobalBrand(uniqueBrandName());
+
+      const res = await request(app)
+        .put(`/api/brands/${globalBrand.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: uniqueBrandName() });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/marca global/i);
+    });
+
+    it('deve impedir exclusão (DELETE) de marca global retornando 403 Forbidden', async () => {
+      const globalBrand = await createGlobalBrand(uniqueBrandName());
+
+      const res = await request(app)
+        .delete(`/api/brands/${globalBrand.id}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/marca global/i);
+    });
+
+    it('deve isolar marcas customizadas entre tenants diferentes', async () => {
+      const tenantB = await createTenant('Tenant Marcas B');
+      const tenantBUser = await createTenantUser(tenantB.id, 'ADMIN');
+
+      // Tenant A cria uma marca
+      const resA = await createBrand({ name: uniqueBrandName() }, adminToken);
+      expect(resA.status).toBe(201);
+      const brandIdA = resA.body.item.id;
+
+      // Tenant B tenta consultar marca do Tenant A -> 404
+      const resGetB = await request(app)
+        .get(`/api/brands/${brandIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`);
+      expect(resGetB.status).toBe(404);
+
+      // Tenant B tenta alterar marca do Tenant A -> 404
+      const resPutB = await request(app)
+        .put(`/api/brands/${brandIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`)
+        .send({ name: uniqueBrandName() });
+      expect(resPutB.status).toBe(404);
+
+      // Tenant B tenta deletar marca do Tenant A -> 404
+      const resDelB = await request(app)
+        .delete(`/api/brands/${brandIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`);
+      expect(resDelB.status).toBe(404);
     });
   });
 });

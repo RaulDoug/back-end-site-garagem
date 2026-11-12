@@ -22,6 +22,8 @@ export default class BaseRepository<
     T extends QueryResultRow,
     C = Record<string, unknown>
 > {
+  protected columns: string[] = [];
+
   constructor(
         protected tableName: string,
         protected options: RepositoryOptions = { softDelete: true, hasActiveStatus: true }
@@ -29,11 +31,17 @@ export default class BaseRepository<
     this.options = { softDelete: true, hasActiveStatus: true, ...options };
   }
 
-  async findById(id: string): Promise<T | null> {
+  async findById(id: string, tenantId?: string): Promise<T | null> {
     let query = `
             SELECT * FROM ${this.tableName} 
             WHERE id = $1
         `;
+    const values: unknown[] = [id];
+
+    if (tenantId && this.columns.includes('tenant_id')) {
+      query += ` AND tenant_id = $${values.length + 1}`;
+      values.push(tenantId);
+    }
 
     if (this.options.softDelete) {
       query += ' AND deleted_at IS NULL LIMIT 1;';
@@ -41,7 +49,7 @@ export default class BaseRepository<
       query += ' LIMIT 1;';
     }
 
-    const result = await pool.query<T>(query, [id]);
+    const result = await pool.query<T>(query, values);
 
     return result.rows[0] || null;
   }
@@ -62,34 +70,46 @@ export default class BaseRepository<
     return result.rows[0];
   }
 
-  async update(id: string, data: Partial<C>): Promise<T | null> {
+  async update(id: string, data: Partial<C>, tenantId?: string): Promise<T | null> {
     const keys = Object.keys(data);
     if (keys.length === 0) return null;
 
-    const { query, values } = buildUpdateQuery(this.tableName, data as Record<string, unknown>, id, this.options);
+    const updateOptions = {
+      ...this.options,
+      ...(tenantId && this.columns.includes('tenant_id') ? { tenantId } : {}),
+    };
+
+    const { query, values } = buildUpdateQuery(this.tableName, data as Record<string, unknown>, id, updateOptions);
 
     const result = await pool.query<T>(query, values);
 
     return result.rows[0] || null;
   }
 
-  async delete(id: string): Promise<T | null> {
+  async delete(id: string, tenantId?: string): Promise<T | null> {
     let query: string;
+    const values: unknown[] = [id];
+
+    let tenantClause = '';
+    if (tenantId && this.columns.includes('tenant_id')) {
+      tenantClause = ` AND tenant_id = $${values.length + 1}`;
+      values.push(tenantId);
+    }
 
     if (this.options.softDelete) {
       const activeClause = this.options.hasActiveStatus ? ', is_active = false' : '';
       query = `
                 UPDATE ${this.tableName}
                 SET deleted_at = NOW()${activeClause}
-                WHERE id = $1 
+                WHERE id = $1${tenantClause} 
                 AND deleted_at IS NULL 
                 RETURNING *;
             `;
     } else {
-      query = `DELETE FROM ${this.tableName} WHERE id = $1 RETURNING *;`;
+      query = `DELETE FROM ${this.tableName} WHERE id = $1${tenantClause} RETURNING *;`;
     }
 
-    const result = await pool.query<T>(query, [id]);
+    const result = await pool.query<T>(query, values);
 
     return result.rows[0] || null;
   }

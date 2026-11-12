@@ -6,12 +6,13 @@ Esta documentação detalha todas as rotas da API Garagem de Veículos, especifi
 
 ## Sumário
 1. [Health](#health)
-2. [Usuários (`/api/users`)](#usuários)
-3. [Lojas (`/api/stores`)](#lojas)
-4. [Marcas (`/api/brands`)](#marcas)
-5. [Opcionais (`/api/features`)](#opcionais)
-6. [Modelos (`/api/models`)](#modelos)
-7. [Veículos (`/api/vehicles`)](#veículos)
+2. [Empresas / Tenants (`/api/tenants`)](#empresas--tenants)
+3. [Usuários (`/api/users`)](#usuários)
+4. [Lojas (`/api/stores`)](#lojas)
+5. [Marcas (`/api/brands`)](#marcas)
+6. [Opcionais (`/api/features`)](#opcionais)
+7. [Modelos (`/api/models`)](#modelos)
+8. [Veículos (`/api/vehicles`)](#veículos)
 
 ---
 
@@ -35,6 +36,91 @@ Esta documentação detalha todas as rotas da API Garagem de Veículos, especifi
   "uptime": 142.35
 }
 ```
+
+---
+
+# Empresas / Tenants
+
+Gerenciamento de empresas no modelo Multi-Tenant hierárquico, permitindo onboarding transacional (empresa + matriz + usuário administrador inicial) e manutenção cadastral da própria empresa.
+
+---
+
+## `POST` /api/tenants/onboard
+- **Descrição:** Cria transacionalmente a empresa (`tenant`), sua loja matriz (`store`) e o primeiro usuário administrador (`admin`), gerando imediatamente o token JWT funcional.
+- **Middlewares / Autenticação:** Rota pública (sem token), `validate(onboardTenantRouteSchema)`.
+
+### Parâmetros & Payload
+- **Body (`req.body`):**
+
+| Objeto | Campo | Tipo | Obrigatório | Descrição / Restrição |
+| :--- | :--- | :--- | :--- | :--- |
+| `tenant` | `corporate_name` | `string` | Sim | Razão social (2 a 255 chars) |
+| `tenant` | `trade_name` | `string` | Sim | Nome fantasia (2 a 255 chars) |
+| `tenant` | `cnpj` | `string` | Sim | CNPJ válido único no sistema (14 a 18 chars) |
+| `store` | `name` | `string` | Sim | Nome da filial matriz |
+| `store` | `cnpj` | `string` | Sim | CNPJ válido da filial único no sistema |
+| `store` | `phone` | `string` | Sim | Telefone de contato da loja |
+| `store` | `zip_code` | `string` | Sim | CEP válido brasileiro |
+| `store` | `street`, `number`, `neighborhood`, `city`, `state` | `string` | Sim | Endereço completo da matriz |
+| `admin` | `name` | `string` | Sim | Nome completo do gestor master |
+| `admin` | `email` | `string` | Sim | E-mail corporativo único no sistema |
+| `admin` | `password` | `string` | Sim | Senha forte com no mínimo 8 caracteres |
+| `admin` | `phone` | `string` | Sim | Telefone de contato do administrador |
+| `admin` | `cpf` | `string` | Sim | CPF válido brasileiro |
+
+### Respostas
+- **`201 Created`**:
+```json
+{
+  "message": "Tenant registrado com sucesso",
+  "tenant": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "corporate_name": "Alpha Veículos Ltda",
+    "trade_name": "Alpha Motors",
+    "cnpj": "12345678000199",
+    "is_active": true
+  },
+  "store": {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "name": "Alpha Matriz",
+    "cnpj": "12345678000288"
+  },
+  "admin": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "name": "Gestor Master",
+    "email": "admin@alphamotors.com",
+    "role": "ADMIN"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+- **`400 Bad Request`**: Dados inválidos (CNPJ ou CPF inválidos, senha fraca).
+- **`409 Conflict`**: CNPJ da empresa, CNPJ da loja ou e-mail do admin já em uso.
+
+---
+
+## `GET` /api/tenants/me
+- **Descrição:** Retorna as informações cadastrais do tenant associado ao usuário autenticado (`req.user.tenantId`).
+- **Middlewares / Autenticação:** `authenticateJWT`.
+
+### Respostas
+- **`200 OK`**: Retorna objeto `{ item: { id, corporate_name, trade_name, cnpj, is_active } }`.
+- **`401 Unauthorized`**: Token ausente ou inválido.
+- **`404 Not Found`**: Tenant não localizado.
+
+---
+
+## `PUT` /api/tenants/me
+- **Descrição:** Atualiza os dados cadastrais da empresa do usuário logado.
+- **Middlewares / Autenticação:** `authenticateJWT`, `authorizeRoles('ADMIN')`, `validate(updateTenantRouteSchema)`.
+
+### Parâmetros & Payload
+- **Body (`req.body`):** `corporate_name` (opcional), `trade_name` (opcional), `cnpj` (opcional), `is_active` (opcional).
+
+### Respostas
+- **`200 OK`**: Retorna `{ message: "Tenant atualizado com sucesso", item: { ... } }`.
+- **`403 Forbidden`**: Usuário sem perfil `ADMIN`.
+- **`409 Conflict`**: Novo CNPJ já em uso por outro tenant.
 
 ---
 
@@ -273,7 +359,39 @@ Controle de autenticação, criação de credenciais e gerenciamento de perfis d
 
 # Lojas
 
-Gerenciamento das concessionárias e unidades físicas.
+Gerenciamento das concessionárias e unidades físicas dentro do tenant do usuário, além de consulta pública para a vitrine.
+
+---
+
+## `GET` /api/stores/public/:id
+- **Descrição:** Consulta pública dos dados de uma loja/filial ativa (endereço, telefone, horário, `tenant_id`) para montagem do cabeçalho, rodapé e contato da vitrine.
+- **Middlewares / Autenticação:** Rota pública (nenhum middleware de autenticação).
+
+### Parâmetros & Payload
+- **Path Params (`req.params`):** `id` (UUID da loja).
+
+### Respostas
+- **`200 OK`**:
+```json
+{
+  "item": {
+    "id": "70a6d0b9-5095-46b5-a6a3-a7d0dbba3e5f",
+    "tenant_id": "11111111-1111-4111-8111-111111111111",
+    "name": "Concessionária Horizonte",
+    "phone": "(37) 98888-7777",
+    "cnpj": "12345678000199",
+    "zip_code": "35500000",
+    "street": "Av. Paulista",
+    "number": "1000",
+    "neighborhood": "Bela Vista",
+    "city": "São Paulo",
+    "state": "SP",
+    "complement": null,
+    "is_active": true
+  }
+}
+```
+- **`404 Not Found`**: Loja inexistente ou inativa.
 
 ---
 
@@ -661,10 +779,20 @@ Módulo central do sistema: vitrine pública, comparador e backoffice administra
 
 ## `GET` /api/vehicles
 - **Descrição:** Catálogo da Vitrine Pública (UC01). Retorna veículos ativos com higienização de segurança (oculta placa completa, custos de compra e dados do proprietário).
-- **Middlewares / Autenticação:** Rota pública, `validate(findVehicleSchema)`.
+- **Middlewares / Autenticação:** `resolvePublicTenantContext`, `validate(findVehicleSchema)`.
+  - **Resolução de Contexto de Tenant e Loja:** Nas rotas públicas, o tenant e a loja podem ser informados através de:
+    - Headers: `x-tenant-id: <uuid>` e opcionalmente `x-store-id: <uuid>`.
+    - Query Params: `tenant_id=<uuid>` e opcionalmente `store_id=<uuid>`.
+    - Token JWT (caso enviado no header `Authorization`).
+    - *Fallback:* Em ambiente de desenvolvimento local sem identificador, recai para o primeiro tenant cadastrado.
 
 ### Parâmetros & Payload
+- **Headers Suportados:**
+  - `x-tenant-id`: UUID da empresa dona da vitrine.
+  - `x-store-id`: UUID da filial específica para filtragem.
 - **Query Params (`req.query`):**
+  - `tenant_id`: UUID da empresa (filtro de catálogo).
+  - `store_id`: UUID da filial (filtro de catálogo).
   - `page`: `number` (padrão: 1).
   - `limit`: `number` restrito a `12`, `24`, `36` ou `48` (padrão: 12).
   - `category`: `'HATCH'`, `'SEDÃ'`, `'SUV'`, `'PICAPE'`, `'CUPE'`, `'CONVERSIVEL'`, `'PERUA'`, `'MINIVAN/VAN'`, `'ESPORTIVO'`.

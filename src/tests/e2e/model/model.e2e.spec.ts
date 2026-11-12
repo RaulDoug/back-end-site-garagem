@@ -8,6 +8,8 @@ const {
   signToken,
   createBrandForModel,
   createModel,
+  createTenant,
+  createTenantUser,
   cleanup,
 } = createModelE2EContext();
 
@@ -132,6 +134,46 @@ describe('E2E - /api/models', () => {
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(checkRes.status).toBe(404);
+    });
+  });
+
+  describe('Multi-tenant & Isolamento Estrito de Modelos', () => {
+    it('deve isolar modelos entre tenants diferentes', async () => {
+      const tenantB = await createTenant('Tenant Modelos B');
+      const tenantBUser = await createTenantUser(tenantB.id, 'ADMIN');
+
+      // Tenant A cria marca e modelo
+      const brandIdA = await createBrandForModel();
+      const modelName = uniqueModelName();
+      const resA = await createModel({ brand_id: brandIdA, name: modelName }, adminToken);
+      expect(resA.status).toBe(201);
+      const modelIdA = resA.body.item.id;
+
+      // Tenant B não pode ler modelo do Tenant A -> 404
+      const resGetB = await request(app)
+        .get(`/api/models/${modelIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`);
+      expect(resGetB.status).toBe(404);
+
+      // Tenant B não pode atualizar modelo do Tenant A -> 404
+      const resPutB = await request(app)
+        .put(`/api/models/${modelIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`)
+        .send({ name: uniqueModelName() });
+      expect(resPutB.status).toBe(404);
+
+      // Tenant B não pode deletar modelo do Tenant A -> 404
+      const resDelB = await request(app)
+        .delete(`/api/models/${modelIdA}`)
+        .set('Authorization', `Bearer ${tenantBUser.token}`);
+      expect(resDelB.status).toBe(404);
+
+      // Tenant B não pode associar modelo a marca exclusiva do Tenant A -> 404
+      const resCreateWithBrandA = await request(app)
+        .post('/api/models')
+        .set('Authorization', `Bearer ${tenantBUser.token}`)
+        .send({ brand_id: brandIdA, name: uniqueModelName() });
+      expect(resCreateWithBrandA.status).toBe(404);
     });
   });
 });

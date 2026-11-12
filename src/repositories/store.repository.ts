@@ -2,36 +2,56 @@ import pool from '#src/config/database.js';
 import BaseRepository from '#repositories/base.repository.js';
 
 export interface Store {
-    id: string;
-    name: string;
-    phone: string;
-    zip_code: string;
-    street: string;
-    number: string;
-    complement?: string | null;
-    neighborhood: string;
-    city: string;
-    state: string;
-    cnpj: string;
-    is_active: boolean;
-    deleted_at: Date | null;
-    created_at: Date;
+  id: string;
+  tenant_id: string;
+  name: string;
+  phone: string;
+  zip_code: string;
+  street: string;
+  number: string;
+  complement?: string | null;
+  neighborhood: string;
+  city: string;
+  state: string;
+  cnpj: string;
+  is_active: boolean;
+  deleted_at: Date | null;
+  created_at: Date;
 }
 
 export interface CreateStoreData {
-    name: string;
-    phone: string;
-    cnpj: string;
-    zip_code: string;
-    street: string;
-    number: string;
-    neighborhood: string;
-    city: string;
-    state: string;
-    complement?: string;
+  tenant_id?: string;
+  name: string;
+  phone: string;
+  cnpj: string;
+  zip_code: string;
+  street: string;
+  number: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  complement?: string | null;
 }
 
 export class StoreRepository extends BaseRepository<Store, CreateStoreData> {
+  protected override columns = [
+    'id',
+    'tenant_id',
+    'name',
+    'phone',
+    'zip_code',
+    'street',
+    'number',
+    'neighborhood',
+    'city',
+    'state',
+    'complement',
+    'cnpj',
+    'is_active',
+    'deleted_at',
+    'created_at',
+  ];
+
   constructor() {
     super('stores');
   }
@@ -42,4 +62,13 @@ export class StoreRepository extends BaseRepository<Store, CreateStoreData> {
 
     return result.rows[0] || null;
   }
+
+  async findByIdAndTenant(id: string, tenantId: string): Promise<Store | null> {
+    const query = 'SELECT * FROM stores WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1;';
+    const result = await pool.query<Store>(query, [id, tenantId]);
+
+    return result.rows[0] || null;
+  }
 }
+
+export const storeRepository = new StoreRepository();

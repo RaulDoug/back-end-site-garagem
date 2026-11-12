@@ -1,10 +1,10 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { createUserE2EContext } from './user.e2e.helpers.js';
 
-const { app, request, uniqueEmail, register, login, cleanup, UUID_REGEX } =
+const { app, pool, request, uniqueEmail, register, login, signToken, createTenant, cleanup, UUID_REGEX } =
   createUserE2EContext();
 
-describe('E2E - Fluxo principal de autenticação', () => {
+describe('E2E - Fluxo principal de autenticação e isolamento', () => {
   let token: string;
   let createdUserId: string;
 
@@ -64,5 +64,57 @@ describe('E2E - Fluxo principal de autenticação', () => {
     expect(res.status).toBe(200);
     expect(res.body.userInfo.id).toBe(createdUserId);
     expect(res.body.userInfo).not.toHaveProperty('password_hash');
+  });
+
+  describe('Isolamento Cross-Tenant (Tenant A vs Tenant B)', () => {
+    it('garante que o Admin do Tenant A não consegue listar, visualizar, editar ou excluir um usuário do Tenant B', async () => {
+      // 1. Cria Tenant B
+      const tenantB = await createTenant('Empresa Usuários B');
+
+      // 2. Insere um usuário diretamente no Tenant B
+      const userBEmail = uniqueEmail('tenant_b_user');
+      const insertRes = await pool.query(
+        `INSERT INTO users (tenant_id, name, email, password_hash, phone, role, is_active)
+         VALUES ($1, $2, $3, $4, $5, 'VENDEDOR'::users_roles_types, true)
+         RETURNING id, email;`,
+        [
+          tenantB.id,
+          'Vendedor Tenant B',
+          userBEmail,
+          '$2b$10$KIXQJ1Z5F1Z5F1Z5F1Z5F.1Z5F1Z5F1Z5F1Z5F1Z5F1Z5F1Z5F1Z5F',
+          '(37) 98888-2222',
+        ]
+      );
+      const userB = insertRes.rows[0];
+
+      const adminTokenTenantA = signToken('ADMIN');
+
+      // 3. Admin Tenant A tenta visualizar usuário do Tenant B -> 404
+      const getRes = await request(app)
+        .get(`/api/users/${userB.id}`)
+        .set('Authorization', `Bearer ${adminTokenTenantA}`);
+      expect(getRes.status).toBe(404);
+
+      // 4. Admin Tenant A tenta editar usuário do Tenant B -> 404
+      const putRes = await request(app)
+        .put(`/api/users/${userB.id}`)
+        .set('Authorization', `Bearer ${adminTokenTenantA}`)
+        .send({ name: 'Invasor Alterando Nome' });
+      expect(putRes.status).toBe(404);
+
+      // 5. Admin Tenant A tenta excluir usuário do Tenant B -> 404
+      const delRes = await request(app)
+        .delete(`/api/users/${userB.id}`)
+        .set('Authorization', `Bearer ${adminTokenTenantA}`);
+      expect(delRes.status).toBe(404);
+
+      // 6. Admin Tenant A listando usuários não visualiza o usuário do Tenant B
+      const listRes = await request(app)
+        .get('/api/users')
+        .set('Authorization', `Bearer ${adminTokenTenantA}`);
+      expect(listRes.status).toBe(200);
+      const users = listRes.body.users || [];
+      expect(users.some((u: { id: string }) => u.id === userB.id)).toBe(false);
+    });
   });
 });

@@ -15,6 +15,7 @@ const modelRepository = new ModelRepository();
 
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
+let testTenantId: string;
 let testStoreId: string;
 let testBrandId: string;
 let testModelId: string;
@@ -23,16 +24,26 @@ let testUserId: string;
 
 describe('VehiclePhotoRepository & Vehicle inspection report (Integration)', () => {
   beforeAll(async () => {
-    // Cria usuário dedicado para isolamento de integridade referencial
+    // 1. Cria Tenant dedicado
+    const tenantCnpj = `${Math.floor(10000000000000 + Math.random() * 90000000000000)}`.slice(0, 14);
+    const tenantRes = await pool.query(
+      `INSERT INTO tenants (corporate_name, trade_name, cnpj, is_active)
+       VALUES ($1, $2, $3, true) RETURNING id`,
+      [`Photo Tenant ${RUN_ID}`, `Photo Tenant ${RUN_ID}`, tenantCnpj]
+    );
+    testTenantId = tenantRes.rows[0].id;
+
+    // 2. Cria usuário dedicado para integridade referencial
     const newUser = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role, phone)
-       VALUES ($1, $2, $3, 'ADMIN', '(37) 99999-8888') RETURNING id`,
-      [`PhotoUser_${RUN_ID}`, `photouser_${RUN_ID}@teste.com`, 'hash']
+      `INSERT INTO users (tenant_id, name, email, password_hash, role, phone)
+       VALUES ($1, $2, $3, $4, 'ADMIN', '(37) 99999-8888') RETURNING id`,
+      [testTenantId, `PhotoUser_${RUN_ID}`, `photouser_${RUN_ID}@teste.com`, 'hash']
     );
     testUserId = newUser.rows[0].id;
 
-    const cnpj = `${Math.floor(10000000000000 + Math.random() * 90000000000000)}`;
+    const cnpj = `${Math.floor(10000000000000 + Math.random() * 90000000000000)}`.slice(0, 14);
     const store = await storeRepository.create({
+      tenant_id: testTenantId,
       name: `Loja_Photo_${RUN_ID}`,
       phone: '(37) 99999-0000',
       cnpj,
@@ -45,16 +56,17 @@ describe('VehiclePhotoRepository & Vehicle inspection report (Integration)', () 
     });
     testStoreId = store.id;
 
-    const brand = await brandRepository.create({ name: `Marca_Photo_${RUN_ID}` });
+    const brand = await brandRepository.create({ name: `Marca_Photo_${RUN_ID}`, tenant_id: testTenantId });
     testBrandId = brand.id;
 
-    const model = await modelRepository.create({ brand_id: brand.id, name: `Modelo_Photo_${RUN_ID}` });
+    const model = await modelRepository.create({ tenant_id: testTenantId, brand_id: brand.id, name: `Modelo_Photo_${RUN_ID}` });
     testModelId = model.id;
 
     const randomNum = Math.floor(100 + Math.random() * 900);
     const fullPlate = `FOT${randomNum % 10}A${String(randomNum % 100).padStart(2, '0')}`;
 
     const vehicle = await vehicleRepository.create({
+      tenant_id: testTenantId,
       store_id: testStoreId,
       model_id: testModelId,
       registered_by_user_id: testUserId,
@@ -94,6 +106,9 @@ describe('VehiclePhotoRepository & Vehicle inspection report (Integration)', () 
     }
     if (testUserId) {
       await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
+    }
+    if (testTenantId) {
+      await pool.query('DELETE FROM tenants WHERE id = $1', [testTenantId]);
     }
   });
 

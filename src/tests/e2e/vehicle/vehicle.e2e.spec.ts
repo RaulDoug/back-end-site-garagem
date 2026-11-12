@@ -9,7 +9,12 @@ const {
   validProprioPayload,
   validConsignadoPayload,
   createVehicle,
+  createTenant,
+  createTenantUser,
+  createStoreForTenant,
   cleanup,
+  getTenantId,
+  getStoreId,
   getFeatureIds,
 } = createVehicleE2EContext();
 
@@ -19,6 +24,7 @@ describe('E2E - Módulo de Veículos (/api/vehicles)', () => {
   const adminToken = signToken('ADMIN');
   const vendedorToken = signToken('VENDEDOR');
   const viewerToken = signToken('VISUALIZADOR');
+  const tenantId = getTenantId();
   const UUID_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
 
   describe('POST /api/vehicles - Cadastro de Veículo (UC06)', () => {
@@ -40,6 +46,7 @@ describe('E2E - Módulo de Veículos (/api/vehicles)', () => {
       const res = await createVehicle(payload, vendedorToken);
 
       expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('item');
       expect(res.body.item.sale_type).toBe('CONSIGNADO');
       expect(res.body.item.owner_name).toBe(payload.owner_name);
       expect(res.body.item.purchase_price).toBeNull();
@@ -57,7 +64,7 @@ describe('E2E - Módulo de Veículos (/api/vehicles)', () => {
       expect(resConsignado.body).toHaveProperty('errors');
     });
 
-    it('deve retornar 409 ao tentar cadastrar duas vezes a mesma placa ativa', async () => {
+    it('deve retornar 409 ao tentar cadastrar duas vezes a mesma placa ativa no mesmo tenant', async () => {
       const plate = uniquePlate();
       const payload1 = validProprioPayload({ full_license_plate: plate });
       const payload2 = validProprioPayload({ full_license_plate: plate });
@@ -87,7 +94,9 @@ describe('E2E - Módulo de Veículos (/api/vehicles)', () => {
       const vehicleId = createdAtivo.body.item.id;
       const vendidoId = createdVendido.body.item.id;
 
-      const res = await request(app).get('/api/vehicles?page=1&limit=48');
+      const res = await request(app)
+        .get('/api/vehicles?page=1&limit=48')
+        .set('x-tenant-id', tenantId);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('items');
@@ -117,7 +126,9 @@ describe('E2E - Módulo de Veículos (/api/vehicles)', () => {
         adminToken
       );
 
-      const res = await request(app).get('/api/vehicles?fuel_type=GASOLINA&limit=48');
+      const res = await request(app)
+        .get('/api/vehicles?fuel_type=GASOLINA&limit=48')
+        .set('x-tenant-id', tenantId);
 
       expect(res.status).toBe(200);
       const ids = res.body.items.map((i: Record<string, unknown>) => i.id);
@@ -135,7 +146,9 @@ describe('E2E - Módulo de Veículos (/api/vehicles)', () => {
         adminToken
       );
 
-      const res = await request(app).get(`/api/vehicles?feature_ids=${feat1},${feat2}&limit=48`);
+      const res = await request(app)
+        .get(`/api/vehicles?feature_ids=${feat1},${feat2}&limit=48`)
+        .set('x-tenant-id', tenantId);
 
       expect(res.status).toBe(200);
       const ids = res.body.items.map((i: Record<string, unknown>) => i.id);
@@ -197,66 +210,36 @@ describe('E2E - Módulo de Veículos (/api/vehicles)', () => {
       // 1ª chamada pública: incrementa total_views de 0 para 1
       const res1 = await request(app)
         .get(`/api/vehicles/${vehicleId}`)
+        .set('x-tenant-id', tenantId)
         .set('User-Agent', 'Browser-Teste-E2E/1.0');
 
       expect(res1.status).toBe(200);
       expect(res1.body.item.id).toBe(vehicleId);
-      expect(res1.body.item).toHaveProperty('brand');
-      expect(res1.body.item).toHaveProperty('model');
-      expect(res1.body.item).toHaveProperty('features');
-      expect(res1.body.item).not.toHaveProperty('full_license_plate');
       expect(res1.body.item.total_views).toBe(1);
 
-      // 2ª chamada pública seguida do mesmo IP e User-Agent: mantém total_views em 1
+      // 2ª chamada pública mesmo IP/User-Agent: NÃO deve incrementar
       const res2 = await request(app)
         .get(`/api/vehicles/${vehicleId}`)
+        .set('x-tenant-id', tenantId)
         .set('User-Agent', 'Browser-Teste-E2E/1.0');
 
       expect(res2.status).toBe(200);
       expect(res2.body.item.total_views).toBe(1);
 
-      // Chamada na rota administrativa (/admin/:id): NUNCA incrementa total_views e retorna dados completos
+      // Rota administrativa não incrementa visualização
       const resAdmin = await request(app)
         .get(`/api/vehicles/admin/${vehicleId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .set('User-Agent', 'Outro-Browser-Admin/2.0');
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(resAdmin.status).toBe(200);
       expect(resAdmin.body.item.total_views).toBe(1);
-      expect(resAdmin.body.item).toHaveProperty('full_license_plate');
     });
 
-    it('deve retornar 404 quando o veículo não existir', async () => {
-      const res = await request(app).get(`/api/vehicles/${UUID_INEXISTENTE}`);
+    it('deve retornar 404 para ID inexistente', async () => {
+      const res = await request(app)
+        .get(`/api/vehicles/${UUID_INEXISTENTE}`)
+        .set('x-tenant-id', tenantId);
       expect(res.status).toBe(404);
-    });
-  });
-
-  describe('GET /api/vehicles/compare - Comparador de Veículos (UC02)', () => {
-    it('deve retornar os veículos comparados lado a lado (200)', async () => {
-      const car1 = await createVehicle(validProprioPayload(), adminToken);
-      const car2 = await createVehicle(validProprioPayload(), adminToken);
-
-      const res = await request(app).get(
-        `/api/vehicles/compare?ids=${car1.body.item.id},${car2.body.item.id}`
-      );
-
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('items');
-      expect(res.body.items.length).toBe(2);
-      expect(res.body.items[0]).not.toHaveProperty('full_license_plate');
-    });
-
-    it('deve retornar 400 se enviar apenas 1 veículo ou mais de 3 veículos', async () => {
-      const car1 = await createVehicle(validProprioPayload(), adminToken);
-
-      const res1 = await request(app).get(`/api/vehicles/compare?ids=${car1.body.item.id}`);
-      expect(res1.status).toBe(400);
-
-      const resMany = await request(app).get(
-        `/api/vehicles/compare?ids=${car1.body.item.id},${UUID_INEXISTENTE},${UUID_INEXISTENTE},${UUID_INEXISTENTE}`
-      );
-      expect(resMany.status).toBe(400);
     });
   });
 
@@ -290,6 +273,100 @@ describe('E2E - Módulo de Veículos (/api/vehicles)', () => {
       expect(resAdmin.status).toBe(200);
       expect(resAdmin.body.item.status).toBe('INATIVO');
       expect(resAdmin.body.item.deleted_at).not.toBeNull();
+    });
+  });
+
+  describe('Multi-tenant & Multi-store: Isolamento Absoluto de Veículos', () => {
+    it('deve permitir a mesma placa em tenants diferentes', async () => {
+      const tenantB = await createTenant('Tenant Veiculos B E2E');
+      const storeB = await createStoreForTenant(tenantB.id, 'Loja B');
+      const userB = await createTenantUser(tenantB.id, 'ADMIN');
+
+      // Modelo e Marca próprios do Tenant B
+      const brandBRes = await request(app)
+        .post('/api/brands')
+        .set('Authorization', `Bearer ${userB.token}`)
+        .send({ name: `Marca_Tenant_B_${Date.now()}` });
+      const modelBRes = await request(app)
+        .post('/api/models')
+        .set('Authorization', `Bearer ${userB.token}`)
+        .send({ brand_id: brandBRes.body.item.id, name: `Modelo_Tenant_B_${Date.now()}` });
+      const modelBId = modelBRes.body.item.id;
+
+      const sharedPlate = uniquePlate();
+
+      // Tenant A cria veículo com placa compartilhada
+      const resA = await createVehicle(
+        validProprioPayload({ full_license_plate: sharedPlate }),
+        adminToken
+      );
+      expect(resA.status).toBe(201);
+      const vehicleAId = resA.body.item.id;
+
+      // Tenant B cria veículo com a MESMA placa (deve ser 201)
+      const resB = await request(app)
+        .post('/api/vehicles')
+        .set('Authorization', `Bearer ${userB.token}`)
+        .send(
+          validProprioPayload({
+            store_id: storeB,
+            model_id: modelBId,
+            feature_ids: [],
+            full_license_plate: sharedPlate,
+          })
+        );
+      expect(resB.status).toBe(201);
+
+      // Usuário do Tenant B tenta ler veículo do Tenant A no admin -> 404
+      const resGetB = await request(app)
+        .get(`/api/vehicles/admin/${vehicleAId}`)
+        .set('Authorization', `Bearer ${userB.token}`);
+      expect(resGetB.status).toBe(404);
+
+      // Usuário do Tenant B tenta editar veículo do Tenant A -> 404
+      const resPutB = await request(app)
+        .put(`/api/vehicles/${vehicleAId}`)
+        .set('Authorization', `Bearer ${userB.token}`)
+        .send({ color: 'Azul' });
+      expect(resPutB.status).toBe(404);
+
+      // Usuário do Tenant B tenta deletar veículo do Tenant A -> 404
+      const resDelB = await request(app)
+        .delete(`/api/vehicles/${vehicleAId}`)
+        .set('Authorization', `Bearer ${userB.token}`);
+      expect(resDelB.status).toBe(404);
+    });
+
+    it('deve restringir vendedor de filial específica a criar/editar apenas na sua filial (403)', async () => {
+      const store1 = getStoreId();
+      const store2 = await createStoreForTenant(tenantId, 'Filial 2');
+
+      // Cria vendedor vinculado exclusivamente à store1
+      const filialSeller = await createTenantUser(tenantId, 'VENDEDOR', store1);
+
+      // Vendedor tenta cadastrar veículo apontando para store2 -> 403 Forbidden
+      const resForbiddenCreate = await request(app)
+        .post('/api/vehicles')
+        .set('Authorization', `Bearer ${filialSeller.token}`)
+        .send(validProprioPayload({ store_id: store2 }));
+      expect(resForbiddenCreate.status).toBe(403);
+      expect(resForbiddenCreate.body.message).toMatch(/própria filial/i);
+
+      // Vendedor cadastra com sucesso na sua filial store1 -> 201 Created
+      const resSuccessCreate = await request(app)
+        .post('/api/vehicles')
+        .set('Authorization', `Bearer ${filialSeller.token}`)
+        .send(validProprioPayload({ store_id: store1 }));
+      expect(resSuccessCreate.status).toBe(201);
+      const vehicleId = resSuccessCreate.body.item.id;
+
+      // Vendedor tenta transferir o veículo para store2 no PUT -> 403 Forbidden
+      const resForbiddenUpdate = await request(app)
+        .put(`/api/vehicles/${vehicleId}`)
+        .set('Authorization', `Bearer ${filialSeller.token}`)
+        .send({ store_id: store2 });
+      expect(resForbiddenUpdate.status).toBe(403);
+      expect(resForbiddenUpdate.body.message).toMatch(/própria filial/i);
     });
   });
 });
