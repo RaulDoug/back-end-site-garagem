@@ -2,6 +2,7 @@ import { FindData } from '#repositories/base.repository.js';
 import { BadRequestError } from '#src/errors/app.error.js';
 
 const SAFE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const IMMUTABLE_UPDATE_COLUMNS = new Set(['id', 'tenant_id', 'created_at']);
 
 function assertValidIdentifier(identifier: string): void {
   if (!SAFE_IDENTIFIER_REGEX.test(identifier)) {
@@ -26,9 +27,17 @@ export function buildUpdateQuery(
   options?: { softDelete?: boolean; tenantId?: string }
 ): { query: string; values: unknown[] } {
   assertValidIdentifier(tableName);
-  const columns = Object.keys(data);
+  const mutableEntries = Object.entries(data).filter(
+    ([key, value]) => !IMMUTABLE_UPDATE_COLUMNS.has(key) && value !== undefined
+  );
+
+  if (mutableEntries.length === 0) {
+    throw new BadRequestError('Nenhum campo válido informado para atualização');
+  }
+
+  const columns = mutableEntries.map(([key]) => key);
   columns.forEach(assertValidIdentifier);
-  const values = Object.values(data);
+  const values = mutableEntries.map(([, value]) => value);
   const setClause = columns.map((column, index) => `${column} = $${index + 1}`).join(', ');
   const useSoftDelete = options?.softDelete !== false;
   const softDeleteClause = useSoftDelete ? ' AND deleted_at IS NULL' : '';

@@ -192,4 +192,24 @@ describe('FeatureRepository - integração com PostgreSQL (Hard Delete & Catálo
       code: '23505',
     });
   });
+
+  it('deve filtrar por operador = no campo name em findForTenant', async () => {
+    const tenantA = await createRepositoryTenant('Tenant Feature Equal A');
+    const featureA1 = await createRepositoryFeature('ar_condicionado', {
+      name: `Ar Condicionado ${RUN_ID}`,
+      tenant_id: tenantA,
+    });
+    const featureA2 = await createRepositoryFeature('ar_quente', {
+      name: `Ar Quente ${RUN_ID}`,
+      tenant_id: tenantA,
+    });
+
+    const results = await repository.findForTenant(tenantA, {
+      filters: [{ field: 'name', operator: '=', value: featureA1.name }],
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(featureA1.id);
+    expect(results.some((f) => f.id === featureA2.id)).toBe(false);
+  });
 });

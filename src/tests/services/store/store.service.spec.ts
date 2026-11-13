@@ -147,7 +147,7 @@ describe('StoreService', () => {
     it('deve retornar a loja quando o CNPJ for encontrado', async () => {
       vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(mockStore);
 
-      const result = await storeService.findByCNPJ(mockStore.cnpj);
+      const result = await storeService.findByCNPJ(mockStore.cnpj, 'tenant-123');
 
       expect(storeRepository.findByCNPJ).toHaveBeenCalledWith(mockStore.cnpj);
       expect(result).toEqual(mockStore);
@@ -156,9 +156,20 @@ describe('StoreService', () => {
     it('deve lançar NotFoundError (404) quando o CNPJ não for encontrado', async () => {
       vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(null);
 
-      await expect(storeService.findByCNPJ('99999999000199')).rejects.toThrow(
+      await expect(storeService.findByCNPJ('99999999000199', 'tenant-123')).rejects.toThrow(
         NotFoundError
       );
+    });
+
+    it('deve lançar NotFoundError (404) quando a loja encontrada pelo CNPJ pertencer a outro tenant', async () => {
+      vi.mocked(storeRepository.findByCNPJ).mockResolvedValue({
+        ...mockStore,
+        tenant_id: 'outro-tenant',
+      });
+
+      await expect(
+        storeService.findByCNPJ(mockStore.cnpj, 'tenant-123')
+      ).rejects.toThrow(NotFoundError);
     });
   });
 

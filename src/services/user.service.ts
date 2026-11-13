@@ -51,7 +51,21 @@ export default class UserService {
   async login(data: LoginUserInput): Promise<{ token: string; user: Omit<User, 'password_hash'> }> {
     const { email, password, tenant_id } = data;
 
-    const user = await this.userRepository.findByEmail(email, tenant_id);
+    let user: User | null;
+
+    if (tenant_id) {
+      user = await this.userRepository.findByEmail(email, tenant_id);
+    } else {
+      const candidates = await this.userRepository.findAllActiveByEmail(email);
+      if (candidates.length > 1) {
+        throw new AppError(
+          'E-mail vinculado a múltiplas empresas. Informe o tenant_id para autenticar.',
+          400
+        );
+      }
+      user = candidates[0] ?? null;
+    }
+
     if (user === null || !user.is_active) {
       throw new AppError('Credenciais inválidas', 401);
     }

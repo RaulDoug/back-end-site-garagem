@@ -25,11 +25,12 @@ describe('UserService.login', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    mockUserRepository.findAllActiveByEmail.mockResolvedValue([buildUser()]);
     userService = new UserService(asUserRepository(mockUserRepository));
   });
 
   it('deve autenticar e retornar token JWT e usuário sem password_hash quando as credenciais forem válidas', async () => {
-    mockUserRepository.findByEmail.mockResolvedValue(buildUser());
+    mockUserRepository.findAllActiveByEmail.mockResolvedValue([buildUser()]);
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
     vi.mocked(jwt.sign).mockReturnValue('jwt_token_simulado' as never);
 
@@ -38,8 +39,8 @@ describe('UserService.login', () => {
       password: USER_PASSWORD,
     });
 
-    expect(mockUserRepository.findByEmail).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.findByEmail).toHaveBeenCalledWith(USER_EMAIL, undefined);
+    expect(mockUserRepository.findAllActiveByEmail).toHaveBeenCalledTimes(1);
+    expect(mockUserRepository.findAllActiveByEmail).toHaveBeenCalledWith(USER_EMAIL);
     expect(resultado).toEqual({
       token: 'jwt_token_simulado',
       user: safeUser,
@@ -86,7 +87,7 @@ describe('UserService.login', () => {
   });
 
   it('deve lançar erro quando o e-mail não for encontrado e não deve comparar senha nem gerar token', async () => {
-    mockUserRepository.findByEmail.mockResolvedValue(null);
+    mockUserRepository.findAllActiveByEmail.mockResolvedValue([]);
 
     await expect(
       userService.login({
@@ -95,9 +96,8 @@ describe('UserService.login', () => {
       })
     ).rejects.toThrow('Credenciais inválidas');
 
-    expect(mockUserRepository.findByEmail).toHaveBeenCalledWith(
-      'inexistente@garagem.com',
-      undefined
+    expect(mockUserRepository.findAllActiveByEmail).toHaveBeenCalledWith(
+      'inexistente@garagem.com'
     );
     expect(bcrypt.compare).not.toHaveBeenCalled();
     expect(jwt.sign).not.toHaveBeenCalled();
@@ -156,6 +156,7 @@ describe('UserService.login', () => {
   });
 
   it('deve lançar erro 401 quando o usuário estiver inativo (is_active = false)', async () => {
+    mockUserRepository.findAllActiveByEmail.mockResolvedValue([buildUser({ is_active: false })]);
     mockUserRepository.findByEmail.mockResolvedValue(buildUser({ is_active: false }));
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
 
@@ -167,5 +168,36 @@ describe('UserService.login', () => {
     ).rejects.toThrow('Credenciais inválidas');
 
     expect(jwt.sign).not.toHaveBeenCalled();
+  });
+
+  it('deve lançar AppError 400 quando o mesmo e-mail existir em múltiplos tenants e tenant_id não for informado', async () => {
+    mockUserRepository.findAllActiveByEmail.mockResolvedValue([
+      buildUser({ id: 'user-1', tenant_id: 'tenant-1' }),
+      buildUser({ id: 'user-2', tenant_id: 'tenant-2' }),
+    ]);
+
+    await expect(
+      userService.login({
+        email: USER_EMAIL,
+        password: USER_PASSWORD,
+      })
+    ).rejects.toThrow('E-mail vinculado a múltiplas empresas. Informe o tenant_id para autenticar.');
+  });
+
+  it('deve usar findByEmail diretamente e autenticar quando tenant_id for informado mesmo existindo múltiplos tenants', async () => {
+    const targetUser = buildUser({ id: 'user-2', tenant_id: 'tenant-2' });
+    mockUserRepository.findByEmail.mockResolvedValue(targetUser);
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    vi.mocked(jwt.sign).mockReturnValue('jwt_token_tenant2' as never);
+
+    const resultado = await userService.login({
+      email: USER_EMAIL,
+      password: USER_PASSWORD,
+      tenant_id: 'tenant-2',
+    });
+
+    expect(mockUserRepository.findByEmail).toHaveBeenCalledWith(USER_EMAIL, 'tenant-2');
+    expect(mockUserRepository.findAllActiveByEmail).not.toHaveBeenCalled();
+    expect(resultado.user.tenant_id).toBe('tenant-2');
   });
 });

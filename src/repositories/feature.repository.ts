@@ -32,6 +32,9 @@ export class FeatureRepository extends BaseRepository<Feature, CreateFeatureData
       if (filter.field === 'name' && filter.operator === 'ILIKE') {
         params.push(`%${filter.value}%`);
         query += ` AND name ILIKE $${params.length}`;
+      } else if (filter.field === 'name' && filter.operator === '=') {
+        params.push(filter.value);
+        query += ` AND name = $${params.length}`;
       }
     }
 

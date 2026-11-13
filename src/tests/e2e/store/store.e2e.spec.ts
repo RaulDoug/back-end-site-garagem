@@ -217,6 +217,12 @@ describe('E2E - /api/stores', () => {
         .set('Authorization', `Bearer ${adminToken}`);
       expect(getRes.status).toBe(404);
 
+      // 1.1 Admin do Tenant A tenta consultar loja do Tenant B por CNPJ -> 404
+      const cnpjRes = await request(app)
+        .get(`/api/stores/cnpj/${storeB.cnpj}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(cnpjRes.status).toBe(404);
+
       // 2. Admin do Tenant A tenta editar loja do Tenant B -> 404
       const putRes = await request(app)
         .put(`/api/stores/${storeB.id}`)

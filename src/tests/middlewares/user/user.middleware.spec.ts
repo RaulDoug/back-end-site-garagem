@@ -14,6 +14,7 @@ import { authorizeRoles, includeDeletedValidateRole } from '#middlewares/role.mi
 import { validate } from '#middlewares/validate.middleware.js';
 import { validateToken } from '#utils/jwt.util.js';
 import { userRepository } from '#repositories/user.repository.js';
+import { tenantRepository } from '#repositories/tenant.repository.js';
 
 vi.mock('#utils/jwt.util.js', () => ({
   validateToken: vi.fn(),
@@ -25,8 +26,15 @@ vi.mock('#repositories/user.repository.js', () => ({
   },
 }));
 
+vi.mock('#repositories/tenant.repository.js', () => ({
+  tenantRepository: {
+    findById: vi.fn(),
+  },
+}));
+
 const mockedValidateToken = vi.mocked(validateToken);
 const mockedFindById = vi.mocked(userRepository.findById);
+const mockedTenantFindById = vi.mocked(tenantRepository.findById);
 
 const createRequest = (overrides: Partial<Request> = {}) =>
   ({
@@ -56,6 +64,11 @@ describe('authenticateJWT', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    mockedTenantFindById.mockResolvedValue({
+      id: 'tenant-uuid-1',
+      is_active: true,
+      deleted_at: null,
+    } as never);
     res = createResponse();
     next = vi.fn() as unknown as NextFunction;
   });
@@ -250,6 +263,74 @@ describe('authenticateJWT', () => {
       tenant_id: null,
       deleted_at: null,
       is_active: true,
+    } as never);
+
+    await authenticateJWT(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Acesso negado. Token não fornecido ou inválido',
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('deve retornar 401 se o tenant do usuário não existir no banco (null)', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'raul.ferreira@garagem.com',
+      role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
+    };
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindById.mockResolvedValue({
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenant_id: 'tenant-uuid-1',
+      store_id: null,
+      deleted_at: null,
+      is_active: true,
+    } as never);
+    mockedTenantFindById.mockResolvedValue(null as never);
+
+    await authenticateJWT(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Acesso negado. Token não fornecido ou inválido',
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('deve retornar 401 se o tenant do usuário estiver inativo (is_active: false)', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'raul.ferreira@garagem.com',
+      role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
+    };
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindById.mockResolvedValue({
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenant_id: 'tenant-uuid-1',
+      store_id: null,
+      deleted_at: null,
+      is_active: true,
+    } as never);
+    mockedTenantFindById.mockResolvedValue({
+      id: 'tenant-uuid-1',
+      is_active: false,
+      deleted_at: null,
     } as never);
 
     await authenticateJWT(req, res, next);

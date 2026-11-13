@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { createUserE2EContext } from './user.e2e.helpers.js';
+import { hashPassword } from '#utils/hash.util.js';
 
 const { app, pool, request, uniqueEmail, register, login, signToken, createTenant, cleanup, UUID_REGEX } =
   createUserE2EContext();
@@ -115,6 +116,42 @@ describe('E2E - Fluxo principal de autenticação e isolamento', () => {
       expect(listRes.status).toBe(200);
       const users = listRes.body.users || [];
       expect(users.some((u: { id: string }) => u.id === userB.id)).toBe(false);
+    });
+
+    it('deve exigir tenant_id ao fazer login se o mesmo e-mail existir em mais de um tenant ativo', async () => {
+      const tenant1 = await createTenant('Empresa Multi 1');
+      const tenant2 = await createTenant('Empresa Multi 2');
+      const sharedEmail = uniqueEmail('shared_login');
+      const password = 'Password123!';
+      const hash = await hashPassword(password);
+
+      await pool.query(
+        `INSERT INTO users (tenant_id, name, email, password_hash, phone, role, is_active)
+         VALUES ($1, $2, $3, $4, $5, 'VENDEDOR'::users_roles_types, true);`,
+        [tenant1.id, 'Usuário Tenant 1', sharedEmail, hash, '(37) 98888-1111']
+      );
+
+      await pool.query(
+        `INSERT INTO users (tenant_id, name, email, password_hash, phone, role, is_active)
+         VALUES ($1, $2, $3, $4, $5, 'VENDEDOR'::users_roles_types, true);`,
+        [tenant2.id, 'Usuário Tenant 2', sharedEmail, hash, '(37) 98888-2222']
+      );
+
+      // 1. Login sem tenant_id -> 400
+      const loginSemTenant = await login({
+        email: sharedEmail,
+        password,
+      });
+      expect(loginSemTenant.status).toBe(400);
+
+      // 2. Login com tenant_id informado -> 200
+      const loginComTenant2 = await login({
+        email: sharedEmail,
+        password,
+        tenant_id: tenant2.id,
+      });
+      expect(loginComTenant2.status).toBe(200);
+      expect(loginComTenant2.body.userInfo.user.tenant_id).toBe(tenant2.id);
     });
   });
 });

@@ -4,6 +4,7 @@ import type { StoreRepository } from '#repositories/store.repository.js';
 
 export const createMockUserRepository = () => ({
   findByEmail: vi.fn(),
+  findAllActiveByEmail: vi.fn(),
   findById: vi.fn(),
   find: vi.fn(),
   create: vi.fn(),

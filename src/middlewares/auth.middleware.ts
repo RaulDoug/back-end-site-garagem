@@ -2,6 +2,7 @@ import rateLimit from 'express-rate-limit';
 import { NextFunction, Request, Response } from 'express';
 import { validateToken } from '#utils/jwt.util.js';
 import { userRepository } from '#repositories/user.repository.js';
+import { tenantRepository } from '#repositories/tenant.repository.js';
 
 export const authenticateJWT = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
@@ -18,6 +19,11 @@ export const authenticateJWT = async (req: Request, res: Response, next: NextFun
     const user = await userRepository.findById(payload.id);
 
     if (user === null || user.deleted_at !== null || !user.is_active || !user.tenant_id) {
+      return res.status(401).json({ message: 'Acesso negado. Token não fornecido ou inválido' });
+    }
+
+    const tenant = await tenantRepository.findById(user.tenant_id);
+    if (!tenant || tenant.deleted_at !== null || !tenant.is_active) {
       return res.status(401).json({ message: 'Acesso negado. Token não fornecido ou inválido' });
     }
 

@@ -128,6 +128,8 @@ describe('E2E - /api/tenants', () => {
         });
 
       expect(response.status).toBe(400);
+      expect(response.body.status).toBe('fail');
+      expect(Array.isArray(response.body.errors)).toBe(true);
     });
 
     it('deve retornar 409 se o CNPJ da empresa já estiver cadastrado', async () => {
@@ -333,6 +335,49 @@ describe('E2E - /api/tenants', () => {
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('tenant');
       expect(response.body.tenant.trade_name).toBe('Nome Fantasia Editado Com Sucesso');
+    });
+
+    it('deve retornar 400 com formato fail se enviar CNPJ inválido no update', async () => {
+      const { tenantCnpj, storeCnpj } = nextValidCnpjs();
+      const onboardRes = await request(app)
+        .post('/api/tenants/onboard')
+        .send({
+          tenant: {
+            corporate_name: 'Empresa Zod Update Ltda',
+            trade_name: 'Empresa Zod Update',
+            cnpj: tenantCnpj,
+          },
+          store: {
+            name: 'Loja Zod',
+            phone: '(37) 98888-7777',
+            cnpj: storeCnpj,
+            zip_code: '35500-000',
+            street: 'Rua',
+            number: '1',
+            neighborhood: 'Bairro',
+            city: 'Cidade',
+            state: 'MG',
+          },
+          admin: {
+            name: 'Admin Zod',
+            email: `admin_zod_${Date.now()}@zod.com`,
+            password: 'Password123!',
+            phone: '(37) 99999-8888',
+            cpf: '123.456.789-09',
+          },
+        });
+
+      createdTenantIds.add(onboardRes.body.tenant.id);
+      const token = onboardRes.body.token;
+
+      const response = await request(app)
+        .put('/api/tenants/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ cnpj: '11.111.111/1111-11' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.status).toBe('fail');
+      expect(Array.isArray(response.body.errors)).toBe(true);
     });
   });
 });

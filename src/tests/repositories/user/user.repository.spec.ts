@@ -275,6 +275,70 @@ describe('UserRepository - integração com PostgreSQL', () => {
     expect(foundInB?.tenant_id).toBe(tenantB.id);
   });
 
+  it('deve retornar todos os usuários ativos com o mesmo e-mail em findAllActiveByEmail e ignorar inativos ou soft-deleted', async () => {
+    const sharedEmail = uniqueEmail('multitenant_active');
+
+    const userA = await repository.create({
+      tenant_id: tenantA.id,
+      name: 'User A',
+      email: sharedEmail,
+      password_hash: PASSWORD_HASH,
+      phone: '(37) 98888-1111',
+    });
+    createdEmails.add(userA.email);
+
+    const userB = await repository.create({
+      tenant_id: tenantB.id,
+      name: 'User B',
+      email: sharedEmail,
+      password_hash: PASSWORD_HASH,
+      phone: '(37) 98888-2222',
+    });
+    createdEmails.add(userB.email);
+
+    const resC = await pool.query(
+      `INSERT INTO tenants (corporate_name, trade_name, cnpj, is_active)
+       VALUES ($1, $2, $3, true) RETURNING id;`,
+      ['Tenant C Corp', 'Tenant C Trade', uniqueCnpj()]
+    );
+    const tenantCId = resC.rows[0].id;
+    createdTenantIds.add(tenantCId);
+
+    const userInactive = await repository.create({
+      tenant_id: tenantCId,
+      name: 'User Inactive',
+      email: sharedEmail,
+      password_hash: PASSWORD_HASH,
+      phone: '(37) 98888-3333',
+    });
+    await pool.query('UPDATE users SET is_active = false WHERE id = $1', [userInactive.id]);
+
+    const resD = await pool.query(
+      `INSERT INTO tenants (corporate_name, trade_name, cnpj, is_active)
+       VALUES ($1, $2, $3, true) RETURNING id;`,
+      ['Tenant D Corp', 'Tenant D Trade', uniqueCnpj()]
+    );
+    const tenantDId = resD.rows[0].id;
+    createdTenantIds.add(tenantDId);
+
+    const userDeleted = await repository.create({
+      tenant_id: tenantDId,
+      name: 'User Deleted',
+      email: sharedEmail,
+      password_hash: PASSWORD_HASH,
+      phone: '(37) 98888-4444',
+    });
+    await repository.delete(userDeleted.id, tenantDId);
+
+    const activeUsers = await repository.findAllActiveByEmail(sharedEmail);
+    expect(activeUsers).toHaveLength(2);
+    const activeIds = activeUsers.map((u) => u.id);
+    expect(activeIds).toContain(userA.id);
+    expect(activeIds).toContain(userB.id);
+    expect(activeIds).not.toContain(userInactive.id);
+    expect(activeIds).not.toContain(userDeleted.id);
+  });
+
   it('deve isolar find, findById, update e delete por tenantId', async () => {
     const userA = await createRepositoryUser('isolamento_A');
     const userB = await repository.create({

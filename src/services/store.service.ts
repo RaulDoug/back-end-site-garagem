@@ -9,11 +9,11 @@ export default class StoreService extends BaseService<Store, CreateStoreData> {
     super(repository);
   }
 
-  async findByCNPJ(cnpj: string): Promise<Store | null> {
+  async findByCNPJ(cnpj: string, tenantId?: string): Promise<Store> {
     const cleanCnpj = cnpj.replace(/\D/g, '');
     const store = await this.repository.findByCNPJ(cleanCnpj.length === 14 ? cleanCnpj : cnpj);
 
-    if (store === null) {
+    if (store === null || (tenantId && store.tenant_id !== tenantId)) {
       throw new NotFoundError(`Loja com CNPJ ${cnpj} não encontrada`);
     }
 

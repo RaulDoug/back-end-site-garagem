@@ -154,4 +154,25 @@ describe('BrandRepository - integração com PostgreSQL (Catálogo Híbrido)', (
     expect(await repository.findByNameForTenant(brandA.name, tenantA.id)).not.toBeNull();
     expect(await repository.findByNameForTenant(brandB.name, tenantA.id)).toBeNull();
   });
+
+  it('deve respeitar includeDeleted ao listar marcas em findForTenant', async () => {
+    const brandA = await createRepositoryBrand('tenant_a_del', { tenant_id: tenantA.id });
+    const brandB = await createRepositoryBrand('tenant_b_del', { tenant_id: tenantB.id });
+
+    await repository.delete(brandA.id);
+    await repository.delete(brandB.id);
+
+    const withoutDeleted = await repository.findForTenant(tenantA.id, {
+      filters: [],
+      includeDeleted: false,
+    });
+    expect(withoutDeleted.some((b) => b.id === brandA.id)).toBe(false);
+
+    const withDeleted = await repository.findForTenant(tenantA.id, {
+      filters: [],
+      includeDeleted: true,
+    });
+    expect(withDeleted.some((b) => b.id === brandA.id)).toBe(true);
+    expect(withDeleted.some((b) => b.id === brandB.id)).toBe(false);
+  });
 });

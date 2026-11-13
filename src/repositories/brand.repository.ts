@@ -30,11 +30,12 @@ export class BrandRepository extends BaseRepository<Brand, CreateBrandData> {
   }
 
   async findForTenant(tenantId?: string | null, filters: FindData = { filters: [] }): Promise<Brand[]> {
-    let query = `
-      SELECT * FROM brands
-      WHERE deleted_at IS NULL
-    `;
+    let query = 'SELECT * FROM brands WHERE 1=1';
     const values: unknown[] = [];
+
+    if (!filters.includeDeleted) {
+      query += ' AND deleted_at IS NULL';
+    }
 
     if (tenantId) {
       values.push(tenantId);

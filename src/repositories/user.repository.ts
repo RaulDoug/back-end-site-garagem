@@ -63,6 +63,18 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
     return result.rows[0] || null;
   }
 
+  async findAllActiveByEmail(email: string): Promise<User[]> {
+    const query = `
+      SELECT * FROM users
+      WHERE LOWER(email) = LOWER($1)
+        AND deleted_at IS NULL
+        AND is_active = true
+      ORDER BY created_at ASC;
+    `;
+    const result = await pool.query<User>(query, [email]);
+    return result.rows;
+  }
+
   override async create(data: CreateUserData): Promise<User> {
     const query = `
       INSERT INTO users (tenant_id, store_id, name, email, password_hash, phone, role, commission_rates)

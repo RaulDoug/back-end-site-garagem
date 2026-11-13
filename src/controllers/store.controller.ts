@@ -57,7 +57,8 @@ export default class StoreController extends BaseController<Store, CreateStoreDa
 
   findByCNPJ = async (req: Request, res: Response): Promise<Response> => {
     const { cnpj } = req.params;
-    const store = await this.service.findByCNPJ(cnpj as string);
+    const tenantId = req.user!.tenantId;
+    const store = await this.service.findByCNPJ(cnpj as string, tenantId);
 
     return res.status(200).json({ store });
   };
