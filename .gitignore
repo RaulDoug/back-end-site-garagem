@@ -5,5 +5,4 @@ dist/
 *.log
 .vscode/
 documentation
-AGENTS.md
 uploads/
