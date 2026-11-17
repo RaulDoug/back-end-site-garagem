@@ -184,6 +184,7 @@ export const findVehicleSchema = z.object({
         'O limite por página deve ser 12, 24, 36 ou 48'
       )
       .default(12),
+    tenant_id: z.string().uuid('ID da empresa inválido').optional(),
     store_id: z.string().uuid('ID da loja inválido').optional(),
     category: categoryEnum.optional(),
     brand_id: z.string().uuid('ID da marca inválido').optional(),
@@ -222,6 +223,8 @@ export const findVehicleSchema = z.object({
 
 export const compareVehiclesSchema = z.object({
   query: z.object({
+    tenant_id: z.string().uuid('ID da empresa inválido').optional(),
+    store_id: z.string().uuid('ID da loja inválido').optional(),
     ids: z
       .string()
       .transform((val) => val.split(',').map((s) => s.trim()))

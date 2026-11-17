@@ -304,6 +304,22 @@ describe('Vehicle Schemas', () => {
       expect(result.success).toBe(false);
       expectIssue(result, ['query', 'plate_last_digit']);
     });
+
+    it('deve aceitar e preservar tenant_id opcional válido na query e rejeitar UUID inválido', () => {
+      const validResult = findVehicleSchema.safeParse({
+        query: { tenant_id: VALID_UUID_STORE },
+      });
+      expect(validResult.success).toBe(true);
+      if (validResult.success) {
+        expect(validResult.data.query.tenant_id).toBe(VALID_UUID_STORE);
+      }
+
+      const invalidResult = findVehicleSchema.safeParse({
+        query: { tenant_id: 'tenant-invalido' },
+      });
+      expect(invalidResult.success).toBe(false);
+      expectIssue(invalidResult, ['query', 'tenant_id']);
+    });
   });
 
   describe('compareVehiclesSchema', () => {
@@ -346,6 +362,21 @@ describe('Vehicle Schemas', () => {
 
       expect(result.success).toBe(false);
       expectIssue(result, ['query', 'ids']);
+    });
+
+    it('deve preservar tenant_id e store_id opcionais na query do comparador', () => {
+      const result = compareVehiclesSchema.safeParse({
+        query: {
+          ids: `${VALID_UUID_FEATURE_1},${VALID_UUID_FEATURE_2}`,
+          tenant_id: VALID_UUID_STORE,
+          store_id: VALID_UUID_MODEL,
+        },
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.query.tenant_id).toBe(VALID_UUID_STORE);
+      expect(result.data.query.store_id).toBe(VALID_UUID_MODEL);
     });
   });
 

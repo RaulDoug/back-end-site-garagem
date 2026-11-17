@@ -475,6 +475,19 @@ describe('E2E - Suíte Completa de Isolamento Multi-Tenant & Multi-Store', () =>
       expect(publicBRes.body.items.some((v: { id: string }) => v.id === vehicleBId)).toBe(true);
       expect(publicBRes.body.items.some((v: { id: string }) => v.id === vehicleAId)).toBe(false);
     });
+
+    it('vitrine pública deve retornar 404 para tenant_id inexistente e para store_id de outro tenant sem revelar vínculo', async () => {
+      const ghostTenantRes = await request(app).get(
+        '/api/vehicles?tenant_id=00000000-0000-4000-8000-000000000000'
+      );
+      expect(ghostTenantRes.status).toBe(404);
+      expect(ghostTenantRes.body.message).toBe('Empresa não encontrada');
+
+      const crossStoreRes = await request(app)
+        .get(`/api/vehicles?tenant_id=${tenantA.id}&store_id=${storeB1.id}`);
+      expect(crossStoreRes.status).toBe(404);
+      expect(crossStoreRes.body.message).toBe('Loja não encontrada');
+    });
   });
 
   describe('Cenário 5: Restrição Multi-Store (Filial Store A1 vs Store A2)', () => {

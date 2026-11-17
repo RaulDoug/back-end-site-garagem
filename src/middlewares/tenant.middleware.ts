@@ -2,70 +2,101 @@ import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { AppError } from '#src/errors/app.error.js';
 import { storeRepository, type Store } from '#repositories/store.repository.js';
+import { tenantRepository, type Tenant } from '#repositories/tenant.repository.js';
 
-interface StoreFinder {
+export interface StoreFinder {
   findById(id: string): Promise<Store | null>;
+}
+
+export interface TenantFinder {
+  findById(id: string): Promise<Tenant | null>;
 }
 
 const uuidSchema = z.string().uuid();
 
-export const createTenantMiddleware = (storeRepo: StoreFinder = storeRepository) => {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+const MISSING_CONTEXT_MESSAGE =
+  'Contexto da empresa ou loja é obrigatório (informe x-tenant-id, x-store-id, tenant_id ou store_id)';
+const INVALID_ID_MESSAGE = 'Identificador de empresa ou loja inválido';
+const STORE_NOT_FOUND_MESSAGE = 'Loja não encontrada';
+const TENANT_NOT_FOUND_MESSAGE = 'Empresa não encontrada';
+
+const pickIdentifier = (headerValue: unknown, queryValue: unknown): unknown => {
+  if (headerValue !== undefined) {
+    return headerValue;
+  }
+  return queryValue;
+};
+
+type ParsedUuidResult =
+  | { valid: true; value: string | undefined }
+  | { valid: false };
+
+const parseOptionalUuid = (rawValue: unknown): ParsedUuidResult => {
+  if (rawValue === undefined) {
+    return { valid: true, value: undefined };
+  }
+
+  const parsed = uuidSchema.safeParse(rawValue);
+  if (!parsed.success) {
+    return { valid: false };
+  }
+
+  return { valid: true, value: parsed.data };
+};
+
+export const createTenantMiddleware = (
+  storeRepo: StoreFinder = storeRepository,
+  tenantRepo: TenantFinder = tenantRepository
+) => {
+  return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     try {
-      const rawTenantId =
-        req.user?.tenantId ||
-        (req.headers['x-tenant-id'] as string | undefined) ||
-        (req.query.tenant_id as string | undefined);
+      const rawTenantId = pickIdentifier(req.headers['x-tenant-id'], req.query.tenant_id);
+      const rawStoreId = pickIdentifier(req.headers['x-store-id'], req.query.store_id);
 
-      const rawStoreId =
-        (req.headers['x-store-id'] as string | undefined) ||
-        (req.query.store_id as string | undefined);
-
-      if (!rawTenantId && !rawStoreId) {
-        return next(
-          new AppError(
-            'Contexto da empresa ou loja é obrigatório (informe x-tenant-id, x-store-id, tenant_id ou store_id)',
-            400
-          )
-        );
+      if (rawTenantId === undefined && rawStoreId === undefined) {
+        return next(new AppError(MISSING_CONTEXT_MESSAGE, 400));
       }
 
-      if (rawTenantId && !uuidSchema.safeParse(rawTenantId).success) {
-        return next(new AppError('Identificador de empresa ou loja inválido', 400));
+      const parsedTenant = parseOptionalUuid(rawTenantId);
+      if (!parsedTenant.valid) {
+        return next(new AppError(INVALID_ID_MESSAGE, 400));
       }
 
-      if (rawStoreId && !uuidSchema.safeParse(rawStoreId).success) {
-        return next(new AppError('Identificador de empresa ou loja inválido', 400));
+      const parsedStore = parseOptionalUuid(rawStoreId);
+      if (!parsedStore.valid) {
+        return next(new AppError(INVALID_ID_MESSAGE, 400));
       }
 
-      let resolvedTenantId: string | null = null;
+      const tenantId = parsedTenant.value;
+      const storeId = parsedStore.value;
+
+      let resolvedTenantId: string | undefined = tenantId;
       let resolvedStoreId: string | null = null;
 
-      if (rawStoreId) {
-        const store = await storeRepo.findById(rawStoreId);
+      if (storeId) {
+        const store = await storeRepo.findById(storeId);
 
-        if (!store) {
-          return next(new AppError('Loja não encontrada', 404));
+        if (!store || store.deleted_at != null || !store.is_active) {
+          return next(new AppError(STORE_NOT_FOUND_MESSAGE, 404));
         }
 
-        if (rawTenantId && store.tenant_id !== rawTenantId) {
-          return next(new AppError('Loja não pertence à empresa informada', 404));
+        // Unifica erro com loja inexistente para evitar enumeração de IDs entre empresas
+        if (tenantId && store.tenant_id !== tenantId) {
+          return next(new AppError(STORE_NOT_FOUND_MESSAGE, 404));
         }
 
-        resolvedTenantId = store.tenant_id ?? rawTenantId ?? null;
+        resolvedTenantId = store.tenant_id;
         resolvedStoreId = store.id;
-      } else if (rawTenantId) {
-        resolvedTenantId = rawTenantId;
-        resolvedStoreId = req.user?.storeId ?? null;
       }
 
       if (!resolvedTenantId) {
-        return next(
-          new AppError(
-            'Contexto da empresa ou loja é obrigatório (informe x-tenant-id, x-store-id, tenant_id ou store_id)',
-            400
-          )
-        );
+        return next(new AppError(MISSING_CONTEXT_MESSAGE, 400));
+      }
+
+      const tenant = await tenantRepo.findById(resolvedTenantId);
+      if (!tenant || tenant.deleted_at != null || !tenant.is_active) {
+        const notFoundMessage = storeId ? STORE_NOT_FOUND_MESSAGE : TENANT_NOT_FOUND_MESSAGE;
+        return next(new AppError(notFoundMessage, 404));
       }
 
       req.tenantContext = {

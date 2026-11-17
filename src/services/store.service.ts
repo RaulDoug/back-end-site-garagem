@@ -1,11 +1,18 @@
 import { CreateStoreData, Store, StoreRepository } from '#repositories/store.repository.js';
+import {
+  TenantRepository,
+  tenantRepository as defaultTenantRepository,
+} from '#repositories/tenant.repository.js';
 import { AppError, NotFoundError } from '#src/errors/app.error.js';
 import BaseService from '#services/base.service.js';
 import { FindData } from '#repositories/base.repository.js';
 import { createStoreSchema } from '#schemas/store.schema.js';
 
 export default class StoreService extends BaseService<Store, CreateStoreData> {
-  constructor(protected override repository = new StoreRepository()) {
+  constructor(
+    protected override repository = new StoreRepository(),
+    private readonly tenantRepository: TenantRepository = defaultTenantRepository
+  ) {
     super(repository);
   }
 
@@ -49,7 +56,12 @@ export default class StoreService extends BaseService<Store, CreateStoreData> {
   async findPublicById(id: string): Promise<Store> {
     const store = await this.repository.findById(id);
 
-    if (store === null) {
+    if (!store || !store.is_active || store.deleted_at != null) {
+      throw new NotFoundError('Loja não encontrada');
+    }
+
+    const tenant = await this.tenantRepository.findById(store.tenant_id);
+    if (!tenant || !tenant.is_active || tenant.deleted_at != null) {
       throw new NotFoundError('Loja não encontrada');
     }
 

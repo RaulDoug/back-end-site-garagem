@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import StoreService from '#services/store.service.js';
 import { StoreRepository, type Store } from '#repositories/store.repository.js';
+import { TenantRepository, type Tenant } from '#repositories/tenant.repository.js';
 import { AppError, NotFoundError } from '#src/errors/app.error.js';
 
 const mockStore: Store = {
@@ -21,6 +22,16 @@ const mockStore: Store = {
   created_at: new Date(),
 };
 
+const mockTenant: Tenant = {
+  id: 'tenant-123',
+  corporate_name: 'Holding Exemplo Ltda',
+  trade_name: 'Garagem Exemplo',
+  cnpj: '12345678000195',
+  is_active: true,
+  created_at: new Date(),
+  deleted_at: null,
+};
+
 const storePayload = {
   name: 'Loja Exemplo',
   phone: '(37) 98888-7777',
@@ -35,6 +46,7 @@ const storePayload = {
 
 describe('StoreService', () => {
   let storeRepository: StoreRepository;
+  let tenantRepository: TenantRepository;
   let storeService: StoreService;
 
   beforeEach(() => {
@@ -49,7 +61,11 @@ describe('StoreService', () => {
       findByIdAndTenant: vi.fn(),
     } as unknown as StoreRepository;
 
-    storeService = new StoreService(storeRepository);
+    tenantRepository = {
+      findById: vi.fn().mockResolvedValue(mockTenant),
+    } as unknown as TenantRepository;
+
+    storeService = new StoreService(storeRepository, tenantRepository);
   });
 
   describe('create', () => {
@@ -138,6 +154,58 @@ describe('StoreService', () => {
       vi.mocked(storeRepository.findById).mockResolvedValue(null);
 
       await expect(storeService.findPublicById('id-inexistente')).rejects.toThrow(
+        NotFoundError
+      );
+    });
+
+    it('deve lançar NotFoundError (404) quando a loja pública estiver inativa (is_active: false)', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue({
+        ...mockStore,
+        is_active: false,
+      });
+
+      await expect(storeService.findPublicById(mockStore.id)).rejects.toThrow(
+        NotFoundError
+      );
+    });
+
+    it('deve lançar NotFoundError (404) quando a loja pública estiver soft-deleted (deleted_at preenchido)', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue({
+        ...mockStore,
+        deleted_at: new Date(),
+      });
+
+      await expect(storeService.findPublicById(mockStore.id)).rejects.toThrow(
+        NotFoundError
+      );
+    });
+
+    it('deve lançar NotFoundError (404) quando o tenant da loja não existir ou estiver inativo (is_active: false)', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
+      vi.mocked(tenantRepository.findById).mockResolvedValue({
+        ...mockTenant,
+        is_active: false,
+      });
+
+      await expect(storeService.findPublicById(mockStore.id)).rejects.toThrow(
+        NotFoundError
+      );
+
+      vi.mocked(tenantRepository.findById).mockResolvedValue(null);
+
+      await expect(storeService.findPublicById(mockStore.id)).rejects.toThrow(
+        NotFoundError
+      );
+    });
+
+    it('deve lançar NotFoundError (404) quando o tenant da loja estiver soft-deleted (deleted_at preenchido)', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
+      vi.mocked(tenantRepository.findById).mockResolvedValue({
+        ...mockTenant,
+        deleted_at: new Date(),
+      });
+
+      await expect(storeService.findPublicById(mockStore.id)).rejects.toThrow(
         NotFoundError
       );
     });

@@ -10,11 +10,11 @@ export default class VehicleController extends BaseController<Vehicle, CreateVeh
   }
 
   findPublic = async (req: Request, res: Response): Promise<Response> => {
-    const tenantId = req.user?.tenantId ?? req.tenantContext?.tenantId;
+    const tenantId = req.tenantContext?.tenantId;
     if (!tenantId) {
       throw new AppError('Contexto da empresa ou loja é obrigatório', 400);
     }
-    const filterStoreId = (req.query.store_id as string) ?? req.tenantContext?.storeId ?? null;
+    const filterStoreId = req.tenantContext?.storeId ?? null;
     const result = await this.service.findPublic(req.query, { tenantId, filterStoreId });
     return res.status(200).json(result);
   };
@@ -32,8 +32,8 @@ export default class VehicleController extends BaseController<Vehicle, CreateVeh
     const { id } = req.params;
     const ip = req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1';
     const userAgent = (req.headers['user-agent'] as string) || 'unknown';
-    const tenantId = req.user?.tenantId ?? req.tenantContext?.tenantId;
-    const filterStoreId = (req.query.store_id as string) ?? req.tenantContext?.storeId ?? null;
+    const tenantId = req.tenantContext?.tenantId;
+    const filterStoreId = req.tenantContext?.storeId ?? null;
 
     const item = await this.service.findByIdPublic(
       id as string,
@@ -61,8 +61,8 @@ export default class VehicleController extends BaseController<Vehicle, CreateVeh
       : typeof rawIds === 'string'
         ? rawIds.split(',').map((s) => s.trim())
         : [];
-    const tenantId = req.user?.tenantId ?? req.tenantContext?.tenantId;
-    const filterStoreId = (req.query.store_id as string) ?? req.tenantContext?.storeId ?? null;
+    const tenantId = req.tenantContext?.tenantId;
+    const filterStoreId = req.tenantContext?.storeId ?? null;
 
     const items = await this.service.comparePublic(
       ids,

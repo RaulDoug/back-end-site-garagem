@@ -4,6 +4,7 @@ import { createStoreE2EContext } from './store.e2e.helpers.js';
 const {
   app,
   request,
+  pool,
   uniqueCnpj,
   signToken,
   createTenant,
@@ -121,6 +122,19 @@ describe('E2E - /api/stores', () => {
 
     it('deve retornar 404 ao consultar loja pública inexistente', async () => {
       const response = await request(app).get(`/api/stores/public/${UUID_INEXISTENTE}`);
+
+      expect(response.status).toBe(404);
+    });
+
+    it('deve retornar 404 ao consultar loja pública cujo tenant esteja inativo', async () => {
+      const tenant = await createTenant('Tenant Inativo Vitrine');
+      const store = await createStoreDirectly(tenant.id, {
+        name: 'Loja de Tenant Inativo',
+      });
+
+      await pool.query('UPDATE tenants SET is_active = false WHERE id = $1', [tenant.id]);
+
+      const response = await request(app).get(`/api/stores/public/${store.id}`);
 
       expect(response.status).toBe(404);
     });

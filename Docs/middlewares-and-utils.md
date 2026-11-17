@@ -111,41 +111,44 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `resolvePublicTenantContext`
 - **Arquivo:** `src/middlewares/tenant.middleware.ts`
-- **Tipo:** Interceptor de Requisição (Resolução de Contexto Multi-Tenant para Vitrine Pública).
-- **Entradas Analisadas:**
-  1. `req.user?.tenantId` (caso o usuário esteja previamente autenticado).
-  2. Headers HTTP `x-tenant-id` e `x-store-id`.
-  3. Query parameters `tenant_id` e `store_id`.
-  4. *Fallback de Desenvolvimento:* Caso nenhum identificador seja informado, busca o primeiro tenant ativo no banco de dados para facilitar desenvolvimento frontend e exploração local.
+- **Tipo:** Interceptor de Requisição (Resolução de Contexto Multi-Tenant exclusivamente para Vitrine Pública).
+- **Entradas Analisadas (sem leitura de `req.user`):**
+  1. Headers HTTP `x-tenant-id` e `x-store-id`.
+  2. Query parameters `tenant_id` e `store_id`.
+- **Validação no Banco de Dados:**
+  - Quando `x-store-id` / `store_id` é informado, consulta a loja e verifica existência, `is_active === true`, `deleted_at == null` e correspondência com `tenant_id` (caso enviado).
+  - Valida sempre a empresa resolvida (`tenant_id`), exigindo existência, `is_active === true` e `deleted_at == null`.
 - **Injeção no `Express.Request`:**
   Injeta no objeto `req` a propriedade `tenantContext` tipada:
   ```typescript
   req.tenantContext = {
     tenantId: string;        // UUID da empresa dona da vitrine
-    storeId?: string | null; // UUID opcional da filial sendo visualizada
+    storeId: string | null;  // UUID da filial sendo visualizada (ou null se escopo de empresa)
   };
   ```
 - **Tratamento de Erros e Interrupções:**
-  - Caso nenhum tenant seja localizado ou informado, interrompe a requisição com status `400 Bad Request`:
+  - **Nenhum identificador informado:** Status `400 Bad Request`:
     ```json
     {
-      "message": "Contexto de empresa (tenant) não identificado para a vitrine"
+      "message": "Contexto da empresa ou loja é obrigatório (informe x-tenant-id, x-store-id, tenant_id ou store_id)"
     }
     ```
-    {
-      "message": "Acesso negado. Token não fornecido ou inválido"
-    }
-    ```
-  - **Usuário inexistente no banco, inativo (`is_active = false`) ou deletado (`deleted_at !== null`):** Status `401 Unauthorized`:
+  - **Identificador malformado (não-UUID, array duplicado ou string vazia):** Status `400 Bad Request`:
     ```json
     {
-      "message": "Acesso negado. Token não fornecido ou inválido"
+      "message": "Identificador de empresa ou loja inválido"
     }
     ```
-  - **Token com assinatura inválida ou expirado:** Status `401 Unauthorized`:
+  - **Loja inexistente, inativa, deletada, pertencente a outra empresa ou vinculada a empresa inativa:** Status `404 Not Found`:
     ```json
     {
-      "message": "Token inválido ou expirado."
+      "message": "Loja não encontrada"
+    }
+    ```
+  - **Empresa informada diretamente (`x-tenant-id`/`tenant_id`) inexistente, inativa ou deletada:** Status `404 Not Found`:
+    ```json
+    {
+      "message": "Empresa não encontrada"
     }
     ```
 

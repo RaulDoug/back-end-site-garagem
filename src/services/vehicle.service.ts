@@ -241,9 +241,7 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
   }> {
     const filters = this.parseQueryFilters(query, true);
     filters.tenant_id = ctx.tenantId;
-    if (ctx.filterStoreId) {
-      filters.store_id = ctx.filterStoreId;
-    }
+    filters.store_id = ctx.filterStoreId ?? undefined;
 
     const result = await this.repository.findCatalog(filters);
 
@@ -265,12 +263,7 @@ export default class VehicleService extends BaseService<Vehicle, CreateVehicleDa
   }> {
     const filters = this.parseQueryFilters(query, false);
     filters.tenant_id = ctx.tenantId;
-
-    if (ctx.userStoreId) {
-      filters.store_id = ctx.userStoreId;
-    } else if (ctx.filterStoreId) {
-      filters.store_id = ctx.filterStoreId;
-    }
+    filters.store_id = ctx.userStoreId ?? ctx.filterStoreId ?? undefined;
 
     const result = await this.repository.findCatalog(filters);
 

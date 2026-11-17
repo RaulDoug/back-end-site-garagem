@@ -323,6 +323,28 @@ describe('VehicleService e Utilitários', () => {
         })
       );
     });
+
+    it('não deve vazar query.store_id em findPublic quando ctx.filterStoreId for null ou undefined', async () => {
+      vi.mocked(vehicleRepository.findCatalog).mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 12,
+      });
+
+      await vehicleService.findPublic(
+        { store_id: '99999999-9999-4999-8999-999999999999' },
+        { tenantId: 'tenant-1', filterStoreId: null }
+      );
+
+      expect(vehicleRepository.findCatalog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicOnly: true,
+          tenant_id: 'tenant-1',
+          store_id: undefined,
+        })
+      );
+    });
   });
 
   describe('RN007: Anti-Fraude em Visualizações (ViewTracker + findByIdPublic)', () => {
