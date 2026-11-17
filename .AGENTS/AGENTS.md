@@ -23,13 +23,14 @@ Todo plano deve assumir que o executor é um **modelo menor** que apenas traduz 
    - **RED**: Criar/atualizar o teste (`.spec.ts`) e, se o arquivo/função alvo ainda não existir, criar apenas o *stub* com a assinatura vazia (`throw new Error('Not implemented')`). Executar o teste e confirmar que falha na asserção ou no erro esperado.
    - **GREEN**: Implementar o código de produção mínimo e correto seguindo o algoritmo do plano até o teste passar.
    - **REFACTOR**: Limpar duplicações e melhorar legibilidade mantendo 100% dos testes verdes.
+   - **Regressão em Correção de Bugs (`fix/...`)**: Toda correção de bug de comportamento ou segurança exige um teste de regressão especificado pelo Planner e validado no passo **RED** (falhando na causa raiz antes de alterar o código de produção). *Exceção*: falhas puramente estáticas (`tsc`, `lint`, build ou documentação), já validadas pelo **Gate Global** e pela Seção 5.3.
 2. **Pequenas Tarefas Atômicas**: Dividir o plano em tarefas sequenciais curtas (uma única responsabilidade/camada por vez).
 3. **Especificação por Contrato (Zero Ambiguidade, Sem Código Completo)**:
    O Planner NÃO deve escrever arquivos de código ou testes inteiros no plano. Cada tarefa deve seguir exatamente este formato:
    - **Arquivos Alvo**: Caminhos exatos a criar/modificar (teste, produção e docs).
    - **Imports Obrigatórios**: Dependências internas usando path aliases com sufixo `.js` (`#controllers/...`, `#routes/...`, `#services/...`, `#repositories/...`, `#middlewares/...`, `#schemas/...`, `#utils/...`, `#src/...`).
    - **Contratos e Assinaturas**: Tipos/Interfaces, *shape* e regras do schema Zod, assinaturas exatas de funções/métodos (parâmetros e retorno) e rotas/status HTTP.
-   - **Especificação de Testes (RED)**: Lista dos blocos `describe`/`it`, configuração dos mocks (input -> retorno simulado) e asserções exatas esperadas (status, payload ou mensagem de erro).
+   - **Especificação de Testes (RED)**: Lista dos blocos `describe`/`it` (incluindo o caso de regressão quando for correção de bug), configuração dos mocks (input -> retorno simulado) e asserções exatas esperadas (status, payload ou mensagem de erro).
    - **Algoritmo de Implementação (GREEN)**: Passo a passo lógico numerado e conciso (regras de negócio, tabelas/colunas afetadas na query SQL e condições de disparo de erro com status/mensagem exatos).
    - **Git & Gate da Tarefa**: Comandos exatos de validação (`vitest`) e, quando a tarefa criar/alterar arquivos, `git add` nominal e mensagem de commit (tarefas apenas de verificação/gate não geram commit).
 4. **Gates de Segurança Bloqueantes (`TRAVA`)**:
