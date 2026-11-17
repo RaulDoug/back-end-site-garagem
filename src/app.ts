@@ -13,6 +13,9 @@ import { setupSwagger } from './config/swagger.js';
 
 const app = express();
 
+const parsedHops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10);
+app.set('trust proxy', Number.isNaN(parsedHops) || parsedHops < 0 ? 1 : parsedHops);
+
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));

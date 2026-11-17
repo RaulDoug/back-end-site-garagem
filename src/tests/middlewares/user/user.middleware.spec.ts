@@ -9,32 +9,33 @@ import {
 } from 'vitest';
 import type { NextFunction, Request, Response } from 'express';
 import { z, type ZodType } from 'zod';
-import { authenticateJWT } from '#middlewares/auth.middleware.js';
+import {
+  authenticateJWT,
+  authenticateOnboardingSecret,
+  createAuthMiddleware,
+  type AuthUserFinder,
+} from '#middlewares/auth.middleware.js';
 import { authorizeRoles, includeDeletedValidateRole } from '#middlewares/role.middleware.js';
 import { validate } from '#middlewares/validate.middleware.js';
-import { validateToken } from '#utils/jwt.util.js';
+import { InvalidTokenError, validateToken } from '#utils/jwt.util.js';
 import { userRepository } from '#repositories/user.repository.js';
-import { tenantRepository } from '#repositories/tenant.repository.js';
 
-vi.mock('#utils/jwt.util.js', () => ({
-  validateToken: vi.fn(),
-}));
+vi.mock('#utils/jwt.util.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#utils/jwt.util.js')>();
+  return {
+    ...actual,
+    validateToken: vi.fn(),
+  };
+});
 
 vi.mock('#repositories/user.repository.js', () => ({
   userRepository: {
-    findById: vi.fn(),
-  },
-}));
-
-vi.mock('#repositories/tenant.repository.js', () => ({
-  tenantRepository: {
-    findById: vi.fn(),
+    findAuthUserById: vi.fn(),
   },
 }));
 
 const mockedValidateToken = vi.mocked(validateToken);
-const mockedFindById = vi.mocked(userRepository.findById);
-const mockedTenantFindById = vi.mocked(tenantRepository.findById);
+const mockedFindAuthUserById = vi.mocked(userRepository.findAuthUserById);
 
 const createRequest = (overrides: Partial<Request> = {}) =>
   ({
@@ -64,11 +65,6 @@ describe('authenticateJWT', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    mockedTenantFindById.mockResolvedValue({
-      id: 'tenant-uuid-1',
-      is_active: true,
-      deleted_at: null,
-    } as never);
     res = createResponse();
     next = vi.fn() as unknown as NextFunction;
   });
@@ -92,7 +88,95 @@ describe('authenticateJWT', () => {
 
   it('deve retornar 401 quando o header não usar o prefixo Bearer', () => {
     const req = createRequest({
+      headers: { authorization: 'Basic token-valido' },
+    });
+
+    authenticateJWT(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Acesso negado. Token não fornecido ou inválido',
+    });
+    expect(mockedValidateToken).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('deve aceitar o prefixo bearer em minúsculo (case-insensitive)', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'raul.ferreira@garagem.com',
+      role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
+    };
+    const req = createRequest({
       headers: { authorization: 'bearer token-valido' },
+    });
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindAuthUserById.mockResolvedValue({
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenant_id: 'tenant-uuid-1',
+      store_id: null,
+      deleted_at: null,
+      is_active: true,
+    } as never);
+
+    await authenticateJWT(req, res, next);
+
+    expect(mockedValidateToken).toHaveBeenCalledWith('token-valido');
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('deve extrair corretamente o token quando houver múltiplos espaços após Bearer', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'raul.ferreira@garagem.com',
+      role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
+    };
+    const req = createRequest({
+      headers: { authorization: 'Bearer    token-valido' },
+    });
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindAuthUserById.mockResolvedValue({
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      tenant_id: 'tenant-uuid-1',
+      store_id: null,
+      deleted_at: null,
+      is_active: true,
+    } as never);
+
+    await authenticateJWT(req, res, next);
+
+    expect(mockedValidateToken).toHaveBeenCalledWith('token-valido');
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('deve retornar 401 sem chamar validateToken quando o header contiver apenas Bearer e espaços', () => {
+    const req = createRequest({
+      headers: { authorization: 'Bearer   ' },
+    });
+
+    authenticateJWT(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Acesso negado. Token não fornecido ou inválido',
+    });
+    expect(mockedValidateToken).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('deve retornar 401 sem chamar validateToken quando houver segmentos extras após o token', () => {
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-1 token-2' },
     });
 
     authenticateJWT(req, res, next);
@@ -117,7 +201,7 @@ describe('authenticateJWT', () => {
       headers: { authorization: 'Bearer token-valido' },
     });
     mockedValidateToken.mockReturnValue(payload as never);
-    mockedFindById.mockResolvedValue({
+    mockedFindAuthUserById.mockResolvedValue({
       id: payload.id,
       email: payload.email,
       role: payload.role,
@@ -136,21 +220,61 @@ describe('authenticateJWT', () => {
     expect(res.json).not.toHaveBeenCalled();
   });
 
-  it('deve retornar 401 quando o token for inválido ou expirado', () => {
+  it('deve retornar 401 quando o token for inválido ou expirado', async () => {
     const req = createRequest({
       headers: { authorization: 'Bearer token-invalido' },
     });
     mockedValidateToken.mockImplementation(() => {
-      throw new Error('TokenExpiredError');
+      throw new InvalidTokenError('Token inválido ou expirado.');
     });
 
-    authenticateJWT(req, res, next);
+    await authenticateJWT(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
       message: 'Token inválido ou expirado.',
     });
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it('deve encaminhar erro inesperado de configuração em validateToken (ex: JWT_SECRET ausente) para next(error)', async () => {
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
+    const configError = new Error('Variável de ambiente JWT_SECRET não configurada.');
+    mockedValidateToken.mockImplementation(() => {
+      throw configError;
+    });
+
+    await authenticateJWT(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledWith(configError);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it('deve encaminhar erro de banco de dados para next(error) sem mascarar como 401', async () => {
+    const payload = {
+      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+      email: 'raul.ferreira@garagem.com',
+      role: 'ADMIN',
+      tenantId: 'tenant-uuid-1',
+      storeId: null,
+    };
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
+    const dbError = new Error('Connection terminated unexpectedly');
+    mockedValidateToken.mockReturnValue(payload as never);
+    mockedFindAuthUserById.mockRejectedValue(dbError);
+
+    await authenticateJWT(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledWith(dbError);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.json).not.toHaveBeenCalled();
   });
 
   it('deve retornar 401 quando o usuário não existir no banco ou estiver deletado', async () => {
@@ -165,7 +289,7 @@ describe('authenticateJWT', () => {
       headers: { authorization: 'Bearer token-valido' },
     });
     mockedValidateToken.mockReturnValue(payload as never);
-    mockedFindById.mockResolvedValue(null);
+    mockedFindAuthUserById.mockResolvedValue(null);
 
     await authenticateJWT(req, res, next);
 
@@ -188,7 +312,7 @@ describe('authenticateJWT', () => {
       headers: { authorization: 'Bearer token-valido' },
     });
     mockedValidateToken.mockReturnValue(payload as never);
-    mockedFindById.mockResolvedValue({
+    mockedFindAuthUserById.mockResolvedValue({
       id: payload.id,
       email: 'novo@garagem.com',
       role: 'VISUALIZADOR',
@@ -200,6 +324,8 @@ describe('authenticateJWT', () => {
 
     await authenticateJWT(req, res, next);
 
+    expect(mockedFindAuthUserById).toHaveBeenCalledTimes(1);
+    expect(mockedFindAuthUserById).toHaveBeenCalledWith(payload.id);
     expect(req.user).toEqual({
       id: payload.id,
       email: 'novo@garagem.com',
@@ -222,7 +348,7 @@ describe('authenticateJWT', () => {
       headers: { authorization: 'Bearer token-valido' },
     });
     mockedValidateToken.mockReturnValue(payload as never);
-    mockedFindById.mockResolvedValue({
+    mockedFindAuthUserById.mockResolvedValue({
       id: payload.id,
       email: payload.email,
       role: payload.role,
@@ -256,7 +382,7 @@ describe('authenticateJWT', () => {
       headers: { authorization: 'Bearer token-valido' },
     });
     mockedValidateToken.mockReturnValue(payload as never);
-    mockedFindById.mockResolvedValue({
+    mockedFindAuthUserById.mockResolvedValue({
       id: payload.id,
       email: payload.email,
       role: payload.role,
@@ -274,7 +400,7 @@ describe('authenticateJWT', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('deve retornar 401 se o tenant do usuário não existir no banco (null)', async () => {
+  it('não deve consultar tenantRepository separadamente ao autenticar um usuário válido', async () => {
     const payload = {
       id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
       email: 'raul.ferreira@garagem.com',
@@ -286,7 +412,7 @@ describe('authenticateJWT', () => {
       headers: { authorization: 'Bearer token-valido' },
     });
     mockedValidateToken.mockReturnValue(payload as never);
-    mockedFindById.mockResolvedValue({
+    mockedFindAuthUserById.mockResolvedValue({
       id: payload.id,
       email: payload.email,
       role: payload.role,
@@ -295,46 +421,80 @@ describe('authenticateJWT', () => {
       deleted_at: null,
       is_active: true,
     } as never);
-    mockedTenantFindById.mockResolvedValue(null as never);
 
     await authenticateJWT(req, res, next);
 
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({
-      message: 'Acesso negado. Token não fornecido ou inválido',
-    });
-    expect(next).not.toHaveBeenCalled();
+    expect(mockedFindAuthUserById).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createAuthMiddleware', () => {
+  let res: Response;
+  let next: NextFunction;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    res = createResponse();
+    next = vi.fn() as unknown as NextFunction;
   });
 
-  it('deve retornar 401 se o tenant do usuário estiver inativo (is_active: false)', async () => {
+  it('deve aceitar um AuthUserFinder injetado e consultar findAuthUserById uma única vez', async () => {
     const payload = {
-      id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
-      email: 'raul.ferreira@garagem.com',
-      role: 'ADMIN',
-      tenantId: 'tenant-uuid-1',
-      storeId: null,
+      id: 'user-injected-1',
+      email: 'injetado@garagem.com',
+      role: 'VENDEDOR',
+      tenantId: 'tenant-injected-1',
+      storeId: 'store-injected-1',
     };
+    const injectedRepo: AuthUserFinder = {
+      findAuthUserById: vi.fn().mockResolvedValue({
+        id: payload.id,
+        email: payload.email,
+        role: payload.role,
+        tenant_id: payload.tenantId,
+        store_id: payload.storeId,
+        deleted_at: null,
+        is_active: true,
+      }),
+    };
+    mockedValidateToken.mockReturnValue(payload as never);
+
+    const middleware = createAuthMiddleware(injectedRepo);
     const req = createRequest({
       headers: { authorization: 'Bearer token-valido' },
     });
+
+    await middleware(req, res, next);
+
+    expect(injectedRepo.findAuthUserById).toHaveBeenCalledTimes(1);
+    expect(injectedRepo.findAuthUserById).toHaveBeenCalledWith(payload.id);
+    expect(mockedFindAuthUserById).not.toHaveBeenCalled();
+    expect(req.user).toEqual(payload);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('deve retornar 401 quando o AuthUserFinder injetado retornar null (usuário ou tenant inválido)', async () => {
+    const payload = {
+      id: 'user-injected-2',
+      email: 'injetado@garagem.com',
+      role: 'ADMIN',
+      tenantId: 'tenant-injected-2',
+      storeId: null,
+    };
+    const injectedRepo: AuthUserFinder = {
+      findAuthUserById: vi.fn().mockResolvedValue(null),
+    };
     mockedValidateToken.mockReturnValue(payload as never);
-    mockedFindById.mockResolvedValue({
-      id: payload.id,
-      email: payload.email,
-      role: payload.role,
-      tenant_id: 'tenant-uuid-1',
-      store_id: null,
-      deleted_at: null,
-      is_active: true,
-    } as never);
-    mockedTenantFindById.mockResolvedValue({
-      id: 'tenant-uuid-1',
-      is_active: false,
-      deleted_at: null,
-    } as never);
 
-    await authenticateJWT(req, res, next);
+    const middleware = createAuthMiddleware(injectedRepo);
+    const req = createRequest({
+      headers: { authorization: 'Bearer token-valido' },
+    });
 
+    await middleware(req, res, next);
+
+    expect(injectedRepo.findAuthUserById).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
       message: 'Acesso negado. Token não fornecido ou inválido',
@@ -560,5 +720,99 @@ describe('includeDeletedValidateRole', () => {
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('authenticateOnboardingSecret', () => {
+  const ORIGINAL_ENV = process.env;
+  const VALID_SECRET = 'segredo-super-seguro-onboarding';
+  let res: Response;
+  let next: NextFunction;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env = { ...ORIGINAL_ENV, ONBOARDING_SECRET: VALID_SECRET };
+    res = createResponse();
+    next = vi.fn() as unknown as NextFunction;
+  });
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+    vi.restoreAllMocks();
+  });
+
+  it('deve encaminhar erro de configuração para next(error) quando ONBOARDING_SECRET estiver ausente', () => {
+    delete process.env.ONBOARDING_SECRET;
+    const req = createRequest({
+      headers: { 'x-onboarding-secret': VALID_SECRET },
+    });
+
+    authenticateOnboardingSecret(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    const forwardedError = (next as unknown as Mock).mock.calls[0]?.[0];
+    expect(forwardedError).toBeInstanceOf(Error);
+    expect((forwardedError as Error).message).toBe(
+      'Variável de ambiente ONBOARDING_SECRET não configurada.'
+    );
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('deve encaminhar erro de configuração para next(error) quando ONBOARDING_SECRET estiver vazia', () => {
+    process.env.ONBOARDING_SECRET = '   ';
+    const req = createRequest({
+      headers: { 'x-onboarding-secret': VALID_SECRET },
+    });
+
+    authenticateOnboardingSecret(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    const forwardedError = (next as unknown as Mock).mock.calls[0]?.[0];
+    expect(forwardedError).toBeInstanceOf(Error);
+    expect((forwardedError as Error).message).toBe(
+      'Variável de ambiente ONBOARDING_SECRET não configurada.'
+    );
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { desc: 'header ausente', headers: {} },
+    { desc: 'header vazio', headers: { 'x-onboarding-secret': '   ' } },
+    {
+      desc: 'header como array',
+      headers: { 'x-onboarding-secret': [VALID_SECRET, VALID_SECRET] },
+    },
+    { desc: 'tamanho diferente', headers: { 'x-onboarding-secret': 'curto' } },
+    {
+      desc: 'mesmo tamanho mas valor diferente',
+      headers: { 'x-onboarding-secret': 'X'.repeat(VALID_SECRET.length) },
+    },
+  ])(
+    'deve retornar 401 quando x-onboarding-secret for inválido ($desc)',
+    ({ headers }) => {
+      const req = createRequest({
+        headers: headers as Request['headers'],
+      });
+
+      authenticateOnboardingSecret(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Acesso negado. Chave de provisionamento inválida ou ausente.',
+      });
+      expect(next).not.toHaveBeenCalled();
+    }
+  );
+
+  it('deve chamar next() sem argumentos quando x-onboarding-secret corresponder a ONBOARDING_SECRET', () => {
+    const req = createRequest({
+      headers: { 'x-onboarding-secret': VALID_SECRET },
+    });
+
+    authenticateOnboardingSecret(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledWith();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });

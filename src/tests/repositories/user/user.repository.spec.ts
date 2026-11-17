@@ -86,6 +86,7 @@ describe('UserRepository - integração com PostgreSQL', () => {
     if (createdTenantIds.size > 0) {
       const ids = Array.from(createdTenantIds);
       await pool.query('DELETE FROM users WHERE tenant_id = ANY($1::uuid[])', [ids]);
+      await pool.query('DELETE FROM stores WHERE tenant_id = ANY($1::uuid[])', [ids]);
       await pool.query('DELETE FROM tenants WHERE id = ANY($1::uuid[])', [ids]);
       createdTenantIds.clear();
     }
@@ -376,5 +377,103 @@ describe('UserRepository - integração com PostgreSQL', () => {
     });
     expect(usersOfA.some((u) => u.id === userA.id)).toBe(true);
     expect(usersOfA.some((u) => u.id === userB.id)).toBe(false);
+  });
+
+  describe('findAuthUserById', () => {
+    it('deve retornar o usuário quando usuário e tenant estão ativos e não deletados', async () => {
+      const user = await createRepositoryUser('auth_active');
+
+      const found = await repository.findAuthUserById(user.id);
+
+      expect(found).toMatchObject({
+        id: user.id,
+        email: user.email,
+        tenant_id: tenantA.id,
+        is_active: true,
+        deleted_at: null,
+      });
+    });
+
+    it('deve retornar null quando o usuário estiver inativo (is_active = false)', async () => {
+      const user = await createRepositoryUser('auth_user_inactive');
+      await pool.query('UPDATE users SET is_active = false WHERE id = $1', [user.id]);
+
+      await expect(repository.findAuthUserById(user.id)).resolves.toBeNull();
+    });
+
+    it('deve retornar null quando o usuário estiver soft-deleted (deleted_at IS NOT NULL)', async () => {
+      const user = await createRepositoryUser('auth_user_deleted');
+      await repository.delete(user.id, tenantA.id);
+
+      await expect(repository.findAuthUserById(user.id)).resolves.toBeNull();
+    });
+
+    it('deve retornar null quando o tenant vinculado estiver inativo (is_active = false)', async () => {
+      const user = await createRepositoryUser('auth_tenant_inactive');
+      await pool.query('UPDATE tenants SET is_active = false WHERE id = $1', [tenantA.id]);
+
+      await expect(repository.findAuthUserById(user.id)).resolves.toBeNull();
+    });
+
+    it('deve retornar null quando o tenant vinculado estiver soft-deleted (deleted_at IS NOT NULL)', async () => {
+      const user = await createRepositoryUser('auth_tenant_deleted');
+      await pool.query('UPDATE tenants SET deleted_at = NOW() WHERE id = $1', [tenantA.id]);
+
+      await expect(repository.findAuthUserById(user.id)).resolves.toBeNull();
+    });
+
+    const createStoreForTenantA = async (label: string): Promise<{ id: string }> => {
+      const res = await pool.query<{ id: string }>(
+        `INSERT INTO stores (
+           tenant_id, name, phone, cnpj, zip_code, street, number, neighborhood, city, state, is_active
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
+         RETURNING id;`,
+        [
+          tenantA.id,
+          `Filial ${label}`,
+          '(37) 98888-7777',
+          uniqueCnpj(),
+          '35500000',
+          'Av. Automotiva',
+          '1000',
+          'Centro',
+          'Divinópolis',
+          'MG',
+        ]
+      );
+      return res.rows[0];
+    };
+
+    it('deve retornar o usuário quando vinculado a uma filial ativa e não deletada', async () => {
+      const store = await createStoreForTenantA('active');
+      const user = await createRepositoryUser('auth_store_active', { store_id: store.id });
+
+      const found = await repository.findAuthUserById(user.id);
+
+      expect(found).toMatchObject({
+        id: user.id,
+        email: user.email,
+        tenant_id: tenantA.id,
+        store_id: store.id,
+        is_active: true,
+        deleted_at: null,
+      });
+    });
+
+    it('deve retornar null quando a filial vinculada ao usuário estiver inativa (stores.is_active = false)', async () => {
+      const store = await createStoreForTenantA('inactive');
+      const user = await createRepositoryUser('auth_store_inactive', { store_id: store.id });
+      await pool.query('UPDATE stores SET is_active = false WHERE id = $1', [store.id]);
+
+      await expect(repository.findAuthUserById(user.id)).resolves.toBeNull();
+    });
+
+    it('deve retornar null quando a filial vinculada ao usuário estiver soft-deleted (stores.deleted_at IS NOT NULL)', async () => {
+      const store = await createStoreForTenantA('deleted');
+      const user = await createRepositoryUser('auth_store_deleted', { store_id: store.id });
+      await pool.query('UPDATE stores SET deleted_at = NOW() WHERE id = $1', [store.id]);
+
+      await expect(repository.findAuthUserById(user.id)).resolves.toBeNull();
+    });
   });
 });

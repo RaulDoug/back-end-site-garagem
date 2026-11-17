@@ -6,8 +6,6 @@ import app from '#src/app.js';
 import pool from '#src/config/database.js';
 import { beforeAll } from 'vitest';
 
-app.set('trust proxy', 1);
-
 export const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

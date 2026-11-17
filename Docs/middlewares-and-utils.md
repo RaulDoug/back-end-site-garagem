@@ -72,10 +72,11 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `authenticateJWT`
+### `authenticateJWT` e `createAuthMiddleware`
 - **Arquivo:** `src/middlewares/auth.middleware.ts`
-- **Tipo:** Interceptor de Requisição (Autenticação Bearer Token).
-- **Entradas Analisadas:** Header HTTP `Authorization` (deve iniciar com o prefixo `Bearer `).
+- **Tipo:** Factory de Interceptor de Requisição (`createAuthMiddleware(userRepo: AuthUserFinder = userRepository)`) com export padrão `authenticateJWT = createAuthMiddleware()`. Permite injeção de dependência para testes unitários mantendo `userRepository` como padrão em produção.
+- **Entradas Analisadas:** Header HTTP `Authorization` validado via regex `/^Bearer\s+(\S+)$/i` (case-insensitive para `Bearer`, tolerante a múltiplos espaços e rejeitando headers sem token ou com segmentos extras antes de invocar `validateToken`).
+- **Consulta Unificada:** Executa **1 única query SQL** via `userRepo.findAuthUserById(payload.id)` (`INNER JOIN tenants t ON t.id = u.tenant_id` e `LEFT JOIN stores s ON s.id = u.store_id AND s.tenant_id = u.tenant_id`), validando simultaneamente usuário e empresa ativos (`is_active = true`) e não deletados (`deleted_at IS NULL`), além de garantir que usuários vinculados a uma filial (`u.store_id IS NOT NULL`) só autentiquem se a filial também estiver ativa e não deletada.
 - **Injeção no `Express.Request`:**
   Injeta no objeto `req` a propriedade `user` tipada via extensão de módulo (`src/@types/express.d.ts`), priorizando os dados atuais do banco de dados (`user.id`, `user.email`, `user.role`, `user.tenant_id`, `user.store_id`) sobre o payload estático do token JWT para refletir alterações de perfil, permissões e filiais imediatamente:
   ```typescript
@@ -87,25 +88,23 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
     storeId: string | null;  // UUID da filial vinculada (ou null se atua na rede)
   };
   ```
-- **Tratamento de Erros e Interrupções:**
-  - **Header ausente ou sem prefixo `Bearer `:** Status `401 Unauthorized`:
+- **Tratamento de Erros e Interrupções (Separação `401` vs `500`):**
+  - **Header ausente, malformado ou usuário/tenant inexistente, inativo ou deletado:** Status `401 Unauthorized`:
     ```json
     {
-      "message": "Token não fornecido"
+      "message": "Acesso negado. Token não fornecido ou inválido"
     }
     ```
-  - **Token adulterado ou expirado:** Dispara exceção capturada pelo handler retornando status `401 Unauthorized`:
+  - **Token adulterado, expirado, algoritmo inválido ou payload inválido (`InvalidTokenError` / `jwt.JsonWebTokenError`):** Status `401 Unauthorized`:
     ```json
     {
-      "message": "Token inválido"
+      "message": "Token inválido ou expirado."
     }
     ```
-  - **Usuário inexistente ou inativo no banco:** Interrompe a requisição com status `401 Unauthorized`:
-    ```json
-    {
-      "message": "Usuário não encontrado ou inativo"
-    }
-    ```
+  - **Falhas de infraestrutura ou configuração (`JWT_SECRET` ausente, erro de rede/PostgreSQL):** Repassadas integralmente para `next(error)`, resultando em `500 Internal Server Error` no `errorHandler` (nunca mascaradas como `401`).
+
+> [!IMPORTANT]
+> **Requisito Obrigatório de Revogação de Sessão (`token_version`)**: Ao implementar a rota de troca de senha (`PATCH /api/users/change-password`) ou logout global, adicione a coluna `token_version INTEGER NOT NULL DEFAULT 1` na tabela `users` (e `tokenVersion` no `TokenPayload`), incremente `token_version` no banco ao alterar a senha e valide `user.token_version === payload.tokenVersion` dentro de `authenticateJWT` para revogar imediatamente todos os tokens emitidos antes da troca de senha.
 
 ---
 
@@ -194,10 +193,12 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 ### `loginLimit`
 - **Arquivo:** `src/middlewares/auth.middleware.ts`
 - **Tipo:** Interceptor de Segurança / Proteção contra Força Bruta (`express-rate-limit`).
-- **Entradas Analisadas:** Endereço IP do cliente.
+- **Configuração:** Limite de 5 tentativas falhas a cada 15 minutos por IP, com `skipSuccessfulRequests: true` para que logins válidos (`2xx`) não consumam a cota do IP.
+- **Proxy Reverso (`TRUST_PROXY_HOPS`):** Em `src/app.ts`, `app.set('trust proxy', ...)` lê `process.env.TRUST_PROXY_HOPS` (padrão `1`), garantindo leitura correta do IP real do cliente em provedores como **Render**, **Northflank** e **Koyeb** (`1` hop direto no load balancer da PaaS, ou `2` se houver Cloudflare Proxy na frente).
+- **Entradas Analisadas:** Endereço IP do cliente resolvido pelo `trust proxy`.
 - **Injeção no `Express.Request`:** Anexa headers padrão de rate-limit (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`).
 - **Tratamento de Erros e Interrupções:**
-  - Se exceder 5 requisições dentro da janela de 15 minutos por IP: Retorna status `429 Too Many Requests`:
+  - Se exceder 5 requisições com falha dentro da janela de 15 minutos por IP: Retorna status `429 Too Many Requests`:
     ```json
     {
       "message": "Muitas tentativas de login neste IP, tente novamente após 15 minutos."
@@ -209,6 +210,7 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 ### `registerLimit`
 - **Arquivo:** `src/middlewares/auth.middleware.ts`
 - **Tipo:** Interceptor de Segurança / Rate Limit de Cadastros (`express-rate-limit`).
+- **Rotas Protegidas:** Aplicado em `POST /api/tenants/onboard` (junto a `authenticateOnboardingSecret`) e nas rotas de criação de conta/usuário para contenção de força bruta.
 - **Entradas Analisadas:** Endereço IP do cliente.
 - **Injeção no `Express.Request`:** Headers padrão de rate-limit.
 - **Tratamento de Erros e Interrupções:**
@@ -216,6 +218,22 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
     ```json
     {
       "message": "Muitas contas criadas a partir deste IP. Tente novamente em 1 hora."
+    }
+    ```
+
+---
+
+### `authenticateOnboardingSecret`
+- **Arquivo:** `src/middlewares/auth.middleware.ts`
+- **Tipo:** Interceptor de Autenticação de Provisionamento SaaS (exclusivo para `POST /api/tenants/onboard`).
+- **Entradas Analisadas:** Header HTTP `x-onboarding-secret` comparado em tempo constante (`crypto.timingSafeEqual`, validando igualdade de `byteLength` antes da comparação) contra `process.env.ONBOARDING_SECRET`.
+- **Injeção no `Express.Request`:** Nenhuma injeção.
+- **Tratamento de Erros e Interrupções:**
+  - **`process.env.ONBOARDING_SECRET` ausente ou vazia:** Encaminha `Error('Variável de ambiente ONBOARDING_SECRET não configurada.')` para `next(error)` (`500 Internal Server Error`).
+  - **Header `x-onboarding-secret` ausente, vazio, array ou divergente:** Interrompe com status `401 Unauthorized`:
+    ```json
+    {
+      "message": "Acesso negado. Chave de provisionamento inválida ou ausente."
     }
     ```
 
@@ -248,11 +266,11 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `generateToken(payload: { id: string, email: string, role: string, tenantId?: string, storeId?: string | null }): string`
+### `generateToken(payload: TokenPayload): string`
 - **Arquivo:** `src/utils/jwt.util.ts`
-- **Descrição:** Gera e assina um token JWT contendo a identidade, perfil, `tenantId` e `storeId` do usuário com validade de 30 dias. Utiliza a função interna `getSecretKey()`, que valida estritamente a variável de ambiente `process.env.JWT_SECRET` (disparando erro se ausente ou vazia).
+- **Descrição:** Gera e assina um token JWT contendo `id`, `email`, `role`, `tenantId` e `storeId` utilizando estritamente o algoritmo `HS256` e validade de `1d` (1 dia). Utiliza a função exportada `getSecretKey()`, que valida `process.env.JWT_SECRET` (disparando `Error` padrão se ausente ou vazia — também executada em fail-fast na subida do servidor em `src/server.ts`).
 - **Assinatura & Parâmetros:**
-  - `payload` (`{ id: string, email: string, role: string, tenantId?: string, storeId?: string | null }`): Informações do usuário autenticado a serem gravadas no token.
+  - `payload` (`TokenPayload`: `{ id: string, email: string, role: string, tenantId: string, storeId?: string | null }`): Informações do usuário autenticado a serem gravadas no token.
 - **Retorno:** `string` contendo o token no formato `Header.Payload.Signature`.
 - **Exemplo Real (Extraído dos testes do Vitest):**
   - Entrada: `generateToken({ id: "4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b", email: "admin@garagem.com", role: "ADMIN", tenantId: "11111111-1111-4111-8111-111111111111", storeId: "22222222-2222-4222-8222-222222222222" })`
@@ -260,12 +278,12 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `validateToken(token: string): string | JwtPayload`
+### `validateToken(token: string): TokenPayload`
 - **Arquivo:** `src/utils/jwt.util.ts`
-- **Descrição:** Valida a assinatura e expiração de um token JWT e extrai seu payload descriptografado contra `process.env.JWT_SECRET`.
+- **Descrição:** Obtém o segredo via `getSecretKey()` antes do bloco de verificação JWT (preservando erros de configuração como `Error` padrão), valida a assinatura e expiração restringindo o algoritmo a `['HS256']`, e valida o payload decodificado em runtime com schema Zod (`id` e `tenantId` em formato UUID válido, `email` e `role` strings não vazias, e `storeId` em formato UUID válido quando preenchido, opcional/nulo).
 - **Assinatura & Parâmetros:**
   - `token` (`string`): Token JWT extraído do header `Authorization`.
-- **Retorno:** `JwtPayload` com as chaves `{ id, email, role, tenantId, storeId, iat, exp }`. Dispara erro se a assinatura for adulterada, o token estiver expirado ou a chave `JWT_SECRET` não estiver configurada.
+- **Retorno:** `TokenPayload` validado com `{ id, email, role, tenantId, storeId }` (normalizando `storeId` ausente para `null`). Dispara `InvalidTokenError` se assinatura, expiração, algoritmo ou campos do payload forem inválidos, e `Error` padrão se `JWT_SECRET` não estiver configurada.
 - **Exemplo Real (Extraído dos testes do Vitest):**
   - Entrada: `validateToken("eyJhbGciOiJIUzI1Ni...")`
   - Saída: `{ id: "4f8d3c2b-7a61-4e59-9b0a-2c3d4e5f6a7b", email: "admin@garagem.com", role: "ADMIN", tenantId: "11111111-1111-4111-8111-111111111111", storeId: "22222222-2222-4222-8222-222222222222" }`

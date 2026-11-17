@@ -3,6 +3,7 @@ import app from '#src/app.js';
 import pool from '#src/config/database.js';
 import { ensureUploadDirs } from '#utils/storage.util.js';
 import { viewTracker } from '#utils/view-tracker.util.js';
+import { getSecretKey } from '#utils/jwt.util.js';
 import { VehicleRepository } from '#repositories/vehicle.repository.js';
 
 const vehicleRepository = new VehicleRepository();
@@ -11,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 async function main() {
   try {
+    getSecretKey();
     await pool.query('SELECT NOW()');
     console.log('PostgreSQL conectado com sucesso!');
     

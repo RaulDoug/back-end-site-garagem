@@ -205,4 +205,29 @@ describe('POST /api/users/login - autenticação e casos de borda', () => {
         'Muitas tentativas de login neste IP, tente novamente após 15 minutos.',
     });
   });
+
+  it('não deve contabilizar logins bem-sucedidos no rate limit do mesmo IP', async () => {
+    const ipFixo = '203.0.113.99';
+
+    for (let tentativa = 1; tentativa <= 6; tentativa += 1) {
+      const res = await login(
+        {
+          email: loginUser.email,
+          password: loginUser.password,
+        },
+        ipFixo
+      );
+      expect(res.status).toBe(200);
+    }
+
+    const setimaTentativa = await login(
+      {
+        email: loginUser.email,
+        password: 'SenhaIncorreta123!',
+      },
+      ipFixo
+    );
+
+    expect(setimaTentativa.status).toBe(401);
+  });
 });

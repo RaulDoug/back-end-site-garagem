@@ -8,6 +8,15 @@ import pool from '#src/config/database.js';
 
 describe('E2E - Suíte Completa de Isolamento Multi-Tenant & Multi-Store', () => {
   let sequence = 0;
+  const ipBlock = Math.floor(Math.random() * 240) + 10;
+  let ipSequence = 0;
+
+  const nextIp = () => {
+    ipSequence += 1;
+    const thirdOctet = Math.floor((ipSequence - 1) / 250);
+    const fourthOctet = ((ipSequence - 1) % 250) + 1;
+    return `10.${ipBlock}.${thirdOctet}.${fourthOctet}`;
+  };
   const createdTenantIds = new Set<string>();
   const createdGlobalBrandIds = new Set<string>();
   const createdGlobalFeatureIds = new Set<string>();
@@ -122,6 +131,8 @@ describe('E2E - Suíte Completa de Isolamento Multi-Tenant & Multi-Store', () =>
 
       const res = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           tenant: {
             corporate_name: 'Holding Alpha Veiculos Ltda',
@@ -173,6 +184,8 @@ describe('E2E - Suíte Completa de Isolamento Multi-Tenant & Multi-Store', () =>
 
       const res = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           tenant: {
             corporate_name: 'Holding Beta Veiculos Ltda',

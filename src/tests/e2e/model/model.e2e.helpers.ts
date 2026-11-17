@@ -89,6 +89,8 @@ export const createModelE2EContext = () => {
         id: userId || seed.id,
         email: seed.email,
         role,
+        tenantId: DEFAULT_MODEL_TENANT_ID,
+        storeId: null,
       },
       secret,
       { expiresIn: '1h', ...options }
@@ -114,7 +116,11 @@ export const createModelE2EContext = () => {
     return {
       userId,
       email,
-      token: jwt.sign({ id: userId, email, role }, JWT_SECRET, { expiresIn: '1h' }),
+      token: jwt.sign(
+        { id: userId, email, role, tenantId, storeId: null },
+        JWT_SECRET,
+        { expiresIn: '1h' }
+      ),
     };
   };
 

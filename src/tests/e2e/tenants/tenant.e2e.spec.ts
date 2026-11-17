@@ -7,7 +7,16 @@ import { generateToken } from '#utils/jwt.util.js';
 
 describe('E2E - /api/tenants', () => {
   const createdTenantIds = new Set<string>();
+  const ipBlock = Math.floor(Math.random() * 240) + 10;
   let sequence = 0;
+  let ipSequence = 0;
+
+  const nextIp = () => {
+    ipSequence += 1;
+    const thirdOctet = Math.floor((ipSequence - 1) / 250);
+    const fourthOctet = ((ipSequence - 1) % 250) + 1;
+    return `10.${ipBlock}.${thirdOctet}.${fourthOctet}`;
+  };
 
   beforeAll(() => {
     if (!process.env.DB_NAME?.endsWith('_test')) {
@@ -59,6 +68,8 @@ describe('E2E - /api/tenants', () => {
 
       const response = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           tenant: {
             corporate_name: 'Auto Shopping Brasil Ltda',
@@ -101,6 +112,8 @@ describe('E2E - /api/tenants', () => {
     it('deve retornar 400 se o CNPJ do tenant for inválido', async () => {
       const response = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           tenant: {
             corporate_name: 'Invalida Ltda',
@@ -161,13 +174,19 @@ describe('E2E - /api/tenants', () => {
         },
       };
 
-      const res1 = await request(app).post('/api/tenants/onboard').send(payload);
+      const res1 = await request(app)
+        .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
+        .send(payload);
       expect(res1.status).toBe(201);
       createdTenantIds.add(res1.body.tenant.id);
 
       const { storeCnpj: anotherStoreCnpj } = nextValidCnpjs();
       const res2 = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           ...payload,
           store: { ...payload.store, cnpj: anotherStoreCnpj },
@@ -176,6 +195,55 @@ describe('E2E - /api/tenants', () => {
 
       expect(res2.status).toBe(409);
       expect(res2.body.message).toMatch(/cnpj.*(empresa|uso)/i);
+    });
+
+    it('deve retornar 401 quando o header x-onboarding-secret não for enviado', async () => {
+      const response = await request(app)
+        .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .send({});
+
+      expect(response.status).toBe(401);
+      expect(response.body.message).toBe(
+        'Acesso negado. Chave de provisionamento inválida ou ausente.'
+      );
+    });
+
+    it('deve retornar 401 quando o header x-onboarding-secret for inválido', async () => {
+      const response = await request(app)
+        .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', 'chave-secreta-invalida')
+        .send({});
+
+      expect(response.status).toBe(401);
+      expect(response.body.message).toBe(
+        'Acesso negado. Chave de provisionamento inválida ou ausente.'
+      );
+    });
+
+    it('deve retornar 429 na sexta tentativa de onboarding do mesmo IP (registerLimit)', async () => {
+      const rateLimitIp = nextIp();
+
+      for (let i = 0; i < 5; i += 1) {
+        const res = await request(app)
+          .post('/api/tenants/onboard')
+          .set('X-Forwarded-For', rateLimitIp)
+          .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
+          .send({});
+        expect(res.status).not.toBe(429);
+      }
+
+      const blockedRes = await request(app)
+        .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', rateLimitIp)
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
+        .send({});
+
+      expect(blockedRes.status).toBe(429);
+      expect(blockedRes.body.message).toBe(
+        'Muitas contas criadas a partir deste IP. Tente novamente em 1 hora.'
+      );
     });
   });
 
@@ -189,6 +257,8 @@ describe('E2E - /api/tenants', () => {
       const { tenantCnpj, storeCnpj } = nextValidCnpjs();
       const onboardRes = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           tenant: {
             corporate_name: 'Empresa Me Ltda',
@@ -234,6 +304,8 @@ describe('E2E - /api/tenants', () => {
       const { tenantCnpj, storeCnpj } = nextValidCnpjs();
       const onboardRes = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           tenant: {
             corporate_name: 'Empresa Role Test Ltda',
@@ -298,6 +370,8 @@ describe('E2E - /api/tenants', () => {
       const { tenantCnpj, storeCnpj } = nextValidCnpjs();
       const onboardRes = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           tenant: {
             corporate_name: 'Empresa Atualizar Ltda',
@@ -341,6 +415,8 @@ describe('E2E - /api/tenants', () => {
       const { tenantCnpj, storeCnpj } = nextValidCnpjs();
       const onboardRes = await request(app)
         .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
         .send({
           tenant: {
             corporate_name: 'Empresa Zod Update Ltda',

@@ -1,50 +1,62 @@
+import { timingSafeEqual } from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { NextFunction, Request, Response } from 'express';
-import { validateToken } from '#utils/jwt.util.js';
-import { userRepository } from '#repositories/user.repository.js';
-import { tenantRepository } from '#repositories/tenant.repository.js';
+import jwt from 'jsonwebtoken';
+import { InvalidTokenError, type TokenPayload, validateToken } from '#utils/jwt.util.js';
+import { type User, userRepository } from '#repositories/user.repository.js';
 
-export const authenticateJWT = async (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
+export interface AuthUserFinder {
+  findAuthUserById(id: string): Promise<User | null>;
+}
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'Acesso negado. Token não fornecido ou inválido' });
-  }
+export const createAuthMiddleware = (userRepo: AuthUserFinder = userRepository) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization?.trim();
+    const match = authHeader ? /^Bearer\s+(\S+)$/i.exec(authHeader) : null;
+    const token = match?.[1];
 
-  const token = authHeader.split(' ')[1];
-
-  try {
-    const payload = validateToken(token);
-
-    const user = await userRepository.findById(payload.id);
-
-    if (user === null || user.deleted_at !== null || !user.is_active || !user.tenant_id) {
+    if (!token) {
       return res.status(401).json({ message: 'Acesso negado. Token não fornecido ou inválido' });
     }
 
-    const tenant = await tenantRepository.findById(user.tenant_id);
-    if (!tenant || tenant.deleted_at !== null || !tenant.is_active) {
-      return res.status(401).json({ message: 'Acesso negado. Token não fornecido ou inválido' });
+    let payload: TokenPayload;
+    try {
+      payload = validateToken(token);
+    } catch (error) {
+      if (error instanceof InvalidTokenError || error instanceof jwt.JsonWebTokenError) {
+        return res.status(401).json({ message: 'Token inválido ou expirado.' });
+      }
+      return next(error);
     }
 
-    req.user = {
-      id: user.id,
-      email: user.email ?? payload.email,
-      role: user.role ?? payload.role,
-      tenantId: user.tenant_id,
-      storeId: user.store_id ?? null,
-    };
+    try {
+      const user = await userRepo.findAuthUserById(payload.id);
 
-    next();
-  } catch (error) {
-    console.log(error);
-    return res.status(401).json({ message: 'Token inválido ou expirado.' });
-  }
+      if (!user || user.deleted_at !== null || !user.is_active || !user.tenant_id) {
+        return res.status(401).json({ message: 'Acesso negado. Token não fornecido ou inválido' });
+      }
+
+      req.user = {
+        id: user.id,
+        email: user.email ?? payload.email,
+        role: user.role ?? payload.role,
+        tenantId: user.tenant_id,
+        storeId: user.store_id ?? null,
+      };
+
+      next();
+    } catch (error) {
+      return next(error);
+    }
+  };
 };
+
+export const authenticateJWT = createAuthMiddleware();
 
 export const loginLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
+  skipSuccessfulRequests: true,
   message: { message: 'Muitas tentativas de login neste IP, tente novamente após 15 minutos.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -58,3 +70,35 @@ export const registerLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+export const authenticateOnboardingSecret = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const expectedSecret = process.env.ONBOARDING_SECRET?.trim();
+  if (!expectedSecret) {
+    return next(new Error('Variável de ambiente ONBOARDING_SECRET não configurada.'));
+  }
+
+  const rawHeader = req.headers['x-onboarding-secret'];
+  if (typeof rawHeader !== 'string' || rawHeader.trim() === '') {
+    return res.status(401).json({
+      message: 'Acesso negado. Chave de provisionamento inválida ou ausente.',
+    });
+  }
+
+  const providedBuf = Buffer.from(rawHeader.trim(), 'utf8');
+  const expectedBuf = Buffer.from(expectedSecret, 'utf8');
+
+  if (
+    providedBuf.byteLength !== expectedBuf.byteLength ||
+    !timingSafeEqual(providedBuf, expectedBuf)
+  ) {
+    return res.status(401).json({
+      message: 'Acesso negado. Chave de provisionamento inválida ou ausente.',
+    });
+  }
+
+  return next();
+};

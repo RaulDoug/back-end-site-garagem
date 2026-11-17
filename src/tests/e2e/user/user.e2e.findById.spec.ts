@@ -126,15 +126,24 @@ describe('GET /api/users/:id - autorização e casos de borda', () => {
     });
   });
 
-  it('deve retornar 401 quando o prefixo bearer estiver em minúsculo', async () => {
+  it('deve retornar 401 quando o header usar esquema diferente de Bearer (ex: Basic)', async () => {
     const res = await request(app)
       .get(`/api/users/${targetUserId}`)
-      .set('Authorization', `bearer ${vendedorToken}`);
+      .set('Authorization', `Basic ${vendedorToken}`);
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({
       message: 'Acesso negado. Token não fornecido ou inválido',
     });
+  });
+
+  it('deve aceitar o prefixo bearer em minúsculo (case-insensitive)', async () => {
+    const res = await request(app)
+      .get(`/api/users/${targetUserId}`)
+      .set('Authorization', `bearer ${vendedorToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.userInfo.id).toBe(targetUserId);
   });
 
   it('deve retornar 401 quando o Bearer estiver vazio', async () => {

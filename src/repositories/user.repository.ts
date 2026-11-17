@@ -75,6 +75,24 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
     return result.rows;
   }
 
+  async findAuthUserById(id: string): Promise<User | null> {
+    const query = `
+      SELECT u.*
+      FROM users u
+      INNER JOIN tenants t ON t.id = u.tenant_id
+      LEFT JOIN stores s ON s.id = u.store_id AND s.tenant_id = u.tenant_id
+      WHERE u.id = $1
+        AND u.deleted_at IS NULL
+        AND u.is_active = true
+        AND t.deleted_at IS NULL
+        AND t.is_active = true
+        AND (u.store_id IS NULL OR (s.id IS NOT NULL AND s.deleted_at IS NULL AND s.is_active = true))
+      LIMIT 1;
+    `;
+    const result = await pool.query<User>(query, [id]);
+    return result.rows[0] || null;
+  }
+
   override async create(data: CreateUserData): Promise<User> {
     const query = `
       INSERT INTO users (tenant_id, store_id, name, email, password_hash, phone, role, commission_rates)

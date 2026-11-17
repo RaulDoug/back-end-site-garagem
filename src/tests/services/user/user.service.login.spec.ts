@@ -62,7 +62,7 @@ describe('UserService.login', () => {
     expect(bcrypt.compare).toHaveBeenCalledWith(USER_PASSWORD, PASSWORD_HASH);
   });
 
-  it('deve gerar o token com id, email, role, tenantId, storeId e expiração de 30 dias', async () => {
+  it('deve gerar o token com id, email, role, tenantId, storeId, algoritmo HS256 e expiração de 1 dia', async () => {
     mockUserRepository.findByEmail.mockResolvedValue(buildUser());
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
     vi.mocked(jwt.sign).mockReturnValue('jwt_token_simulado' as never);
@@ -82,7 +82,7 @@ describe('UserService.login', () => {
         storeId: null,
       },
       expect.any(String),
-      { expiresIn: '30d' }
+      { algorithm: 'HS256', expiresIn: '1d' }
     );
   });
 
