@@ -90,12 +90,13 @@ export const createTenantMiddleware = (
       }
 
       if (!resolvedTenantId) {
-        return next(new AppError(MISSING_CONTEXT_MESSAGE, 400));
+        return next(new AppError('Erro interno do servidor', 500));
       }
 
       const tenant = await tenantRepo.findById(resolvedTenantId);
       if (!tenant || tenant.deleted_at != null || !tenant.is_active) {
         const notFoundMessage = storeId ? STORE_NOT_FOUND_MESSAGE : TENANT_NOT_FOUND_MESSAGE;
+        console.log(TENANT_NOT_FOUND_MESSAGE);
         return next(new AppError(notFoundMessage, 404));
       }
 
