@@ -1,6 +1,8 @@
 # Documentação: Services & Repositories
 
-Esta documentação detalha a arquitetura da camada de negócio (`services`) e de persistência relacional com SQL puro via `node-postgres` (`repositories`), mapeando parâmetros, transações ACID, fluxos condicionais, exceções (`AppError`) e as asserções de teste automatizado no Vitest.
+Esta documentação detalha a arquitetura da camada de negócio (`services`) e de persistência relacional com SQL puro via `node-postgres` (`repositories`), mapeando parâmetros multi-tenant/multi-store, transações ACID, fluxos condicionais, exceções (`AppError`) e comportamentos validados na suíte do Vitest.
+
+> **Evolução Planejada (`Docs/roadmaps/roadmap-seguranca.md`):** Na Subfase S4 do roadmap de segurança, as chamadas diretas a `pool.query`/`pool.connect` nos repositories serão substituídas por `db.query`/`db.transaction` (`src/config/db.ts`), mantendo todos os filtros explícitos de `tenant_id` como primeira trava de isolamento em conjunto com o RLS do PostgreSQL.
 
 ---
 
@@ -13,44 +15,53 @@ Esta documentação detalha a arquitetura da camada de negócio (`services`) e d
 6. [Opcionais (`features`)](#módulo-opcionais-features)
 7. [Modelos (`models`)](#módulo-modelos-models)
 8. [Veículos (`vehicles`)](#módulo-veículos-vehicles)
+9. [Mídias e Galeria (`VehicleMedia`)](#módulo-de-mídias-e-galeria-vehiclemedia)
 
 ---
 
 # Módulo: Base / Infraestrutura Genérica
 
-Classes abstratas/genéricas parametrizadas com Generics TypeScript (`T extends QueryResultRow, C = Record<string, unknown>`), fornecendo operações CRUD reutilizáveis com suporte nativo a isolamento multi-tenant (`tenantId?: string`).
+Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string, unknown>`), fornecendo operações CRUD reutilizáveis com suporte nativo a isolamento multi-tenant (`tenantId?: string`) condicionado à declaração `this.columns.includes('tenant_id')`.
 
 ---
 
 ### 1. Camada de Serviço (`BaseService<T, C>`)
+**Arquivo:** `src/services/base.service.ts`
 
 #### `findById(id: string, tenantId?: string): Promise<T>`
-- **Responsabilidade:** Recupera um registro pelo seu identificador único UUID, garantindo que o registro exista no banco e pertença ao `tenantId` (quando fornecido).
-- **Parâmetros:**
+- **Responsabilidade:** Recupera um registro pelo UUID garantindo que pertença ao `tenantId` (quando fornecido).
+- **Exceções (`AppError`):** `404 Not Found` - `NotFoundError ('Registro não encontrado')` quando `result === null`.
 
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `id` | `string` | Não | UUID identificador do registro |
-| `tenantId` | `string` | Sim | UUID da empresa para isolamento multi-tenant |
+#### `find(filters: FindData = { filters: [] }, tenantId?: string): Promise<T[]>`
+- **Responsabilidade:** Cria cópia imutável dos filtros e injeta automaticamente `{ field: 'tenant_id', operator: '=', value: tenantId }` caso `tenantId` seja informado e não exista filtro prévio de `tenant_id`.
 
-- **Regras de Negócio & Fluxos:**
-  1. Invoca `repository.findById(id, tenantId)`.
-  2. Verifica se o resultado é nulo. Caso seja, dispara exceção de não encontrado.
-- **Exceções Disparadas (`AppError`):**
-  - `404 Not Found` - `NotFoundError ('Registro não encontrado')`: Disparado quando `result === null`.
-- **Cenários Testados (Vitest):**
-  - Retorna o registro correspondente quando existente.
-  - Lança `NotFoundError` quando o ID informado não existir ou pertencer a outro tenant.
-- **Chamadas de Persistência:** `repository.findById(id, tenantId)`
+#### `create(data: C): Promise<T>`
+- **Responsabilidade:** Persiste um novo registro via `repository.create(data)`. Lança `BadRequestError ('Erro ao criar registro')` se `!result`.
 
-#### `find(filters: FindData, tenantId?: string): Promise<T[]>`
-- **Responsabilidade:** Consulta registros aplicando filtros dinâmicos de comparação, busca parcial e soft delete, injetando obrigatoriamente `tenant_id = :tenantId` quando o escopo multi-tenant é fornecido.
+#### `update(id: string, data: Partial<C>, tenantId?: unknown): Promise<T>`
+- **Responsabilidade:** Valida que `Object.keys(data).length > 0` (senão lança `400 BadRequestError('Nenhum dado informado')`), normaliza `tenantId` (`typeof tenantId === 'string'`) e executa `repository.update(id, data, tenantIdStr)`. Lança `NotFoundError` se `null`.
 
-#### `update(id: string, data: Partial<C>, tenantId?: string): Promise<T>`
-- **Responsabilidade:** Atualiza campos de um registro existente garantindo que o registro pertença ao `tenantId` informado.
+#### `delete(id: string, tenantId?: string): Promise<T>`
+- **Responsabilidade:** Executa soft-delete ou hard-delete restrito ao `tenantId`. Lança `NotFoundError` se `null`.
 
-#### `delete(id: string, tenantId?: string): Promise<boolean>`
-- **Responsabilidade:** Realiza a exclusão (soft-delete via `deleted_at = NOW()` ou hard-delete dependendo da entidade) restrita ao `tenantId`.
+---
+
+### 2. Camada de Persistência (`BaseRepository<T, C>`)
+**Arquivo:** `src/repositories/base.repository.ts`
+
+- **Propriedades:** `protected columns: string[] = []`, `options: { softDelete?: boolean; hasActiveStatus?: boolean }` (ambos `true` por padrão).
+- **`findById(id: string, tenantId?: string): Promise<T | null>`:**
+  - Executa `SELECT * FROM ${this.tableName} WHERE id = $1` adicionando `AND tenant_id = $2` se `tenantId && this.columns.includes('tenant_id')` e `AND deleted_at IS NULL` se `options.softDelete`.
+- **`find(filters: FindData): Promise<T[]>`:**
+  - Gera SQL via `buildFindQuery(this.tableName, filters, this.options)` (suporta `=`, `>=`, `<=`, `ILIKE`, `IN`/`ANY`, `includeDeleted`).
+- **`create(data: C): Promise<T>`:**
+  - Gera SQL via `buildInsertQuery(this.tableName, data)`.
+- **`update(id: string, data: Partial<C>, tenantId?: string): Promise<T | null>`:**
+  - Retorna `null` se `data` estiver vazio. Repassa `this.options` e `tenantId` (se `this.columns.includes('tenant_id')`) para `buildUpdateQuery` (que bloqueia `id`, `tenant_id` e `created_at` e filtra `AND tenant_id = $n` e `AND deleted_at IS NULL`).
+- **`delete(id: string, tenantId?: string): Promise<T | null>`:**
+  - Inclui `AND tenant_id = $2` quando aplicável.
+  - Se `softDelete`: `UPDATE ${tableName} SET deleted_at = NOW() [, is_active = false] WHERE id = $1... AND deleted_at IS NULL RETURNING *;`.
+  - Se `!softDelete`: `DELETE FROM ${tableName} WHERE id = $1... RETURNING *;`.
 
 ---
 
@@ -61,699 +72,281 @@ Gestão da entidade raiz da arquitetura Multi-Tenant hierárquica e seu fluxo de
 ---
 
 ### 1. Camada de Repositório (`TenantRepository`)
-
-#### `onboardTenant(tenantData, storeData, adminData): Promise<OnboardResult>`
-- **Responsabilidade:** Executa transação ACID no PostgreSQL (`BEGIN ... COMMIT / ROLLBACK`) criando em uma única operação atômica:
-  1. Registro na tabela `tenants`.
-  2. Registro na tabela `stores` com `tenant_id = tenant.id`.
-  3. Registro na tabela `users` com `tenant_id = tenant.id`, `store_id = store.id` e `role = 'ADMIN'`.
+**Arquivo:** `src/repositories/tenant.repository.ts` (`softDelete: true, hasActiveStatus: true`, `customPool: Pool = pool`)
 
 #### `findByCNPJ(cnpj: string): Promise<Tenant | null>`
-- **Responsabilidade:** Localiza tenant pelo CNPJ para verificação de unicidade cadastral global.
+- **Operação:** `SELECT * FROM tenants WHERE (cnpj = $1 OR regexp_replace(cnpj, '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g')) AND deleted_at IS NULL LIMIT 1;`.
 
-#### `findById(id: string): Promise<Tenant | null>`
-- **Responsabilidade:** Recupera os dados cadastrais do tenant pelo UUID.
-
-#### `update(id: string, data: Partial<CreateTenantData>): Promise<Tenant | null>`
-- **Responsabilidade:** Atualiza campos cadastrais da empresa (`corporate_name`, `trade_name`, `cnpj`, `is_active`).
+#### `onboardTenant(input: OnboardTenantDbInput): Promise<{ tenant: Tenant; store: Store; admin: Omit<User, 'password_hash'> }>`
+- **Operação:** Transação ACID (`pool.connect()`, `BEGIN`, `COMMIT`, `ROLLBACK` no `catch`, `client.release()` no `finally`) criando atomicamente:
+  1. Registro em `tenants` (`corporate_name`, `trade_name`, `cnpj`, `is_active`).
+  2. Registro em `stores` vinculado a `tenant.id` com `is_active = true`.
+  3. Registro em `users` com `tenant_id = tenant.id`, `store_id = store.id`, `role = 'ADMIN'`, `is_active = true`, retornando colunas sem `password_hash`.
 
 ---
 
 ### 2. Camada de Serviço (`TenantService`)
+**Arquivo:** `src/services/tenant.service.ts`
 
-#### `onboard(data: OnboardTenantInput): Promise<{ tenant, store, admin, token }>`
-- **Regras de Negócio & Fluxos:**
-  1. Valida se o CNPJ da empresa já está cadastrado (`tenantRepository.findByCNPJ`) -> se existir, lança `409 Conflict`.
-  2. Valida se o CNPJ da loja matriz já está em uso (`storeRepository.findByCNPJ`) -> se existir, lança `409 Conflict`.
-  3. Gera hash seguro da senha com `bcrypt.hash(data.admin.password, 10)`.
-  4. Executa `tenantRepository.onboardTenant(...)`.
-  5. Gera token JWT funcional contendo `{ id, email, role: 'ADMIN', tenantId: tenant.id, storeId: store.id }`.
-  6. Retorna `{ tenant, store, admin, token }`.
+#### `onboard(data: unknown)`
+- **Fluxo:**
+  1. Valida entrada com `onboardTenantSchema.parse(data)`.
+  2. Verifica colisão de CNPJ do tenant (`repository.findByCNPJ`) -> `AppError('CNPJ da empresa já está em uso', 409)`.
+  3. Sanitiza CNPJ da loja (`replace(/\D/g, '')`) e verifica colisão (`storeRepo.findByCNPJ`) -> `AppError('CNPJ da loja já está em uso', 409)`.
+  4. Gera hash da senha com `hashPassword(validated.admin.password)`.
+  5. Executa `repository.onboardTenant(...)`.
+  6. Gera token JWT (`generateToken({ id: admin.id, email: admin.email, role: admin.role, tenantId: tenant.id, storeId: store.id })`).
+  7. Retorna `{ tenant, store, admin, token }`.
 
-- **Regras de Negócio & Fluxos:**
-  1. Repassa os filtros higienizados para a camada de persistência.
-- **Exceções Disparadas (`AppError`):** Nenhuma direta.
-- **Cenários Testados (Vitest):**
-  - Retorna array vazio ou lista populada conforme filtros de igualdade e `ILIKE`.
-- **Chamadas de Persistência:** `repository.find(filters)`
+#### `getById(tenantId: string): Promise<Tenant>`
+- Busca em `repository.findById(tenantId)`. Lança `NotFoundError('Empresa não encontrada')` se não existir.
 
-#### `create(data: C): Promise<T>`
-- **Responsabilidade:** Persiste um novo registro no banco de dados e valida o retorno.
-- **Parâmetros:**
-
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `data` | `C` | Não | DTO com os atributos necessários para criação |
-
-- **Regras de Negócio & Fluxos:**
-  1. Invoca `repository.create(data)`.
-  2. Se a inserção não retornar registro (falha de escrita), interrompe o fluxo.
-- **Exceções Disparadas (`AppError`):**
-  - `400 Bad Request` - `BadRequestError ('Erro ao criar registro')`: Disparado quando `!result`.
-- **Cenários Testados (Vitest):**
-  - Cria e retorna a entidade completa persistida com ID gerado.
-- **Chamadas de Persistência:** `repository.create(data)`
-
-#### `update(id: string, data: Partial<C>): Promise<T>`
-- **Responsabilidade:** Atualiza campos de um registro existente.
-- **Parâmetros:**
-
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `id` | `string` | Não | UUID do registro a ser atualizado |
-| `data` | `Partial<C>` | Não | Objeto contendo os campos parciais para alteração |
-
-- **Regras de Negócio & Fluxos:**
-  1. Valida se o objeto `data` contém ao menos uma chave.
-  2. Executa a atualização no repositório.
-  3. Lança erro caso o registro não seja localizado.
-- **Exceções Disparadas (`AppError`):**
-  - `400 Bad Request` - `BadRequestError ('Nenhum dado informado')`: Quando `Object.keys(data).length === 0`.
-  - `404 Not Found` - `NotFoundError ('Registro não encontrado')`: Quando o retorno for `null`.
-- **Cenários Testados (Vitest):**
-  - Atualização com sucesso retornando entidade atualizada.
-  - Bloqueio quando payload de atualização estiver vazio.
-  - Lançamento de 404 quando o UUID for inexistente.
-- **Chamadas de Persistência:** `repository.update(id, data)`
-
-#### `delete(id: string): Promise<T>`
-- **Responsabilidade:** Remove ou inativa logicamente um registro pelo UUID.
-- **Parâmetros:**
-
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `id` | `string` | Não | UUID do registro |
-
-- **Regras de Negócio & Fluxos:**
-  1. Executa a deleção/inativação no repositório.
-  2. Garante que o registro existia e estava ativo antes da remoção.
-- **Exceções Disparadas (`AppError`):**
-  - `404 Not Found` - `NotFoundError ('Registro não encontrado')`: Quando `result === null`.
-- **Cenários Testados (Vitest):**
-  - Retorna o registro inativado/removido.
-  - Dispara 404 se o registro já estiver deletado ou inexistente.
-- **Chamadas de Persistência:** `repository.delete(id)`
-
----
-
-### 2. Camada de Persistência (`BaseRepository<T, C>`)
-
-#### `findById(id: string): Promise<T | null>`
-- **Operação Principal:** `SELECT`
-- **Tabela(s) Afetada(s):** Tabela parametrizada (`${this.tableName}`).
-- **Parâmetros SQL:**
-  - `$1`: `id` (`string` UUID).
-- **Comportamento da Query:**
-  - Se `options.softDelete = true`: `SELECT * FROM tableName WHERE id = $1 AND deleted_at IS NULL LIMIT 1;`.
-  - Se `options.softDelete = false`: `SELECT * FROM tableName WHERE id = $1 LIMIT 1;`.
-- **Retorno TypeScript:** `T | null` (`result.rows[0] || null`).
-
-#### `find(filters: FindData): Promise<T[]>`
-- **Operação Principal:** `SELECT`
-- **Tabela(s) Afetada(s):** `${this.tableName}`.
-- **Parâmetros SQL:** Gerados dinamicamente via `buildFindQuery` (`$1, $2, ...`).
-  - Suporta operadores: `=`, `>=`, `<=`, `ILIKE` (`%$value%`) e `IN` (`field = ANY($n)`).
-  - Inclui cláusula `deleted_at IS NULL` automaticamente a menos que `includeDeleted = true`.
-- **Comportamento da Query:** Executa query paginada ou filtrada e retorna todos os registros correspondentes.
-- **Retorno TypeScript:** `T[]` (`result.rows`).
-
-#### `create(data: C): Promise<T>`
-- **Operação Principal:** `INSERT`
-- **Tabela(s) Afetada(s):** `${this.tableName}`.
-- **Parâmetros SQL:** Gerados dinamicamente via `buildInsertQuery`:
-  - `INSERT INTO tableName (col1, col2...) VALUES ($1, $2...) RETURNING *;`.
-- **Comportamento da Query:** Insere as colunas mapeadas e retorna a linha recém-criada através de `RETURNING *`.
-- **Retorno TypeScript:** `T` (`result.rows[0]`).
-
-#### `update(id: string, data: Partial<C>): Promise<T | null>`
-- **Operação Principal:** `UPDATE`
-- **Tabela(s) Afetada(s):** `${this.tableName}`.
-- **Parâmetros SQL:** Gerados dinamicamente via `buildUpdateQuery(tableName, data, id, this.options)`:
-  - Se `options.softDelete = true`: `UPDATE tableName SET col1 = $1, col2 = $2 WHERE id = $n AND deleted_at IS NULL RETURNING *;`.
-  - Se `options.softDelete = false`: `UPDATE tableName SET col1 = $1, col2 = $2 WHERE id = $n RETURNING *;`.
-  - `$n` é a última posição do array, recebendo o `id`.
-- **Comportamento da Query:** Altera os campos informados e retorna a entidade atualizada. Impede a atualização de registros deletados logicamente. Retorna `null` se não houver campos no payload ou se o registro não for localizado/estiver inativo.
-- **Retorno TypeScript:** `T | null` (`result.rows[0] || null`).
-
-#### `delete(id: string): Promise<T | null>`
-- **Operação Principal:** `UPDATE` (Soft Delete) ou `DELETE` (Hard Delete).
-- **Tabela(s) Afetada(s):** `${this.tableName}`.
-- **Parâmetros SQL:**
-  - `$1`: `id` (`string`).
-- **Comportamento da Query:**
-  - Soft Delete (`options.softDelete = true`):
-    `UPDATE tableName SET deleted_at = NOW() [, is_active = false] WHERE id = $1 AND deleted_at IS NULL RETURNING *;`.
-  - Hard Delete (`options.softDelete = false`):
-    `DELETE FROM tableName WHERE id = $1 RETURNING *;`.
-- **Retorno TypeScript:** `T | null`.
+#### `update(tenantId: string, data: unknown): Promise<Tenant>`
+- Valida `data` com `updateTenantSchema`, verifica existência com `getById(tenantId)`, checa colisão de CNPJ se alterado (`409` `'CNPJ da empresa já está em uso'`) e persiste via `repository.update(tenantId, validated)`.
 
 ---
 
 # Módulo: Usuários (`users`)
 
-Gerencia regras de credenciamento, criptografia de senhas (bcrypt), emissão de JWT e segurança dos dados dos operadores.
+Gerencia regras de credenciamento multi-tenant, vínculo opcional a filial (`store_id`), criptografia bcrypt, emissão de JWT e consulta unificada de autenticação.
 
 ---
 
 ### 1. Camada de Serviço (`UserService`)
+**Arquivo:** `src/services/user.service.ts`
 
-#### `create(data: CreateUserInput): Promise<Omit<User, 'password_hash'>>`
-- **Responsabilidade:** Registra um novo usuário no banco com senha criptografada em bcrypt e normalização de e-mail.
-- **Parâmetros:**
-
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `data.name` | `string` | Não | Nome completo do operador |
-| `data.email` | `string` | Não | E-mail do operador |
-| `data.password` | `string` | Não | Senha em texto puro |
-| `data.phone` | `string` | Não | Telefone celular formatado |
-| `data.role` | `'ADMIN' \| 'VENDEDOR' \| 'VISUALIZADOR' \| 'PUBLICO'` | Sim | Perfil de permissões |
-| `data.commission_rates`| `number` | Sim | Percentual de comissão |
-
+#### `create(data: CreateUserInput, tenantId?: string): Promise<Omit<User, 'password_hash'>>`
 - **Regras de Negócio & Fluxos:**
-  1. Converte o e-mail informado para lowercase: `data.email.toLowerCase()`.
-  2. Consulta `userRepository.findByEmail(normalizedEmail)`. Se existir, aborta com conflito.
-  3. Gera o hash seguro da senha com `hashPassword(password, 10)`.
-  4. Persiste o usuário no repositório.
-  5. Desestrutura e remove `password_hash` do objeto retornado.
-- **Exceções Disparadas (`AppError`):**
-  - `409 Conflict` - `AppError ('E-mail já cadastrado', 409)`: Quando e-mail já existe ativo.
-- **Cenários Testados (Vitest):**
-  - Cadastro de usuário com dados válidos e retorno correto da entidade.
-  - Ocultação garantida do campo `password_hash` na resposta.
-  - Lançamento de erro 409 em caso de e-mail duplicado.
-  - Aplicação de hash na senha com salt de 10 rounds antes de salvar.
-- **Chamadas de Persistência:**
-  - `userRepository.findByEmail(normalizedEmail)`
-  - `userRepository.create(payload)`
+  1. Exige `tenantId` não vazio (`AppError('Tenant não identificado', 401)`).
+  2. Normaliza e-mail para lowercase e verifica duplicidade no tenant via `userRepository.findByEmail(normalizedEmail, tenantId)` (`409` `'E-mail já cadastrado'`).
+  3. Se `data.store_id` for informado, valida via `storeRepo.findByIdAndTenant(data.store_id, tenantId)` (`404` `'Filial informada não encontrada nesta empresa'`).
+  4. Criptografa senha com `hashPassword(password)` e cria usuário com `tenant_id: tenantId` e `store_id: data.store_id ?? null`.
+  5. Remove `password_hash` do retorno.
 
 #### `login(data: LoginUserInput): Promise<{ token: string; user: Omit<User, 'password_hash'> }>`
-- **Responsabilidade:** Autentica credenciais, valida a senha com o hash do banco e emite o token de sessão JWT.
-- **Parâmetros:**
-
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `data.email` | `string` | Não | E-mail do usuário |
-| `data.password` | `string` | Não | Senha informada na tentativa de login |
-
 - **Regras de Negócio & Fluxos:**
-  1. Busca o usuário por e-mail com `userRepository.findByEmail(email)`.
-  2. Valida se o usuário existe e se está ativo (`is_active = true`). Se `user === null` ou `!user.is_active`, dispara imediatamente erro de credenciais inválidas.
-  3. Compara a senha informada com `user.password_hash` via `comparePassword`.
-  4. Se a senha não bater, aborta com erro 401.
-  5. Gera o token JWT assinado contendo `{ id, email, role }` no payload.
-  6. Retorna o token e os dados públicos do usuário (sem hash).
-- **Exceções Disparadas (`AppError`):**
-  - `401 Unauthorized` - `AppError ('Credenciais inválidas', 401)`: Se usuário for `null`, inativo (`!user.is_active`) ou `isMatch === false`.
-- **Cenários Testados (Vitest):**
-  - Autenticação com sucesso retornando token JWT e usuário sem `password_hash`.
-  - Rejeição com erro 401 para usuário inativo (`is_active = false`).
-  - Rejeição com erro 401 para senha incorreta.
-  - Rejeição com erro 401 para e-mail não existente.
-- **Chamadas de Persistência:** `userRepository.findByEmail(email)`
+  1. Se `tenant_id` for informado: busca usuário com `userRepository.findByEmail(email, tenant_id)`.
+  2. Se `tenant_id` **não** for informado: busca candidatos ativos via `userRepository.findAllActiveByEmail(email)`. Se `candidates.length > 1`, lança `AppError('E-mail vinculado a múltiplas empresas. Informe o tenant_id para autenticar.', 400)`. Caso contrário usa `candidates[0] ?? null`.
+  3. Valida existência e `user.is_active === true`; compara senha via `comparePassword`. Em falha lança `AppError('Credenciais inválidas', 401)`.
+  4. Gera JWT (`HS256`, `1d`) com `{ id, email, role, tenantId: user.tenant_id ?? '', storeId: user.store_id ?? null }`.
+  5. Retorna `{ token, user }` sem `password_hash`.
 
-#### `findById(id: string): Promise<Omit<User, 'password_hash'>>`
-- **Responsabilidade:** Recupera os dados de um usuário pelo UUID, sem expor credenciais.
-- **Regras de Negócio:** Dispara `NotFoundError` caso não exista; remove `password_hash`.
-- **Exceções:** `404 Not Found` - `NotFoundError ('Usuário inexistente.')`.
-- **Chamadas de Persistência:** `userRepository.findById(id)`
+#### `findById(id: string, tenantId?: string): Promise<Omit<User, 'password_hash'>>`
+- Consulta `userRepository.findById(id, tenantId)` (`404` `'Usuário inexistente.'`), removendo `password_hash`.
 
-#### `find(filters: FindData): Promise<Omit<User, 'password_hash'>[]>`
-- **Responsabilidade:** Lista usuários com paginação e filtros parciais, higienizando os hashes de senha.
-- **Chamadas de Persistência:** `userRepository.find(filters)`
+#### `find(filters: FindData = { filters: [] }, tenantId?: string): Promise<Omit<User, 'password_hash'>[]>`
+- Injeta filtro `tenant_id = tenantId` quando informado e remove `password_hash` de todos os itens.
 
-#### `update(id: string, data: UpdateUserBody): Promise<Omit<User, 'password_hash'>>`
-- **Responsabilidade:** Atualiza informações cadastrais do operador.
-- **Regras de Negócio:**
-  1. Garante que o usuário existe previamente.
-  2. Executa a atualização no repositório.
-  3. Remove `password_hash` antes de retornar.
-- **Exceções:**
-  - `404 Not Found` - `NotFoundError ('Usuário inexistente.')`
-  - `400 Bad Request` - `BadRequestError ('Nenhum campo informado para atualização.')`
-- **Chamadas de Persistência:**
-  - `userRepository.findById(id)`
-  - `userRepository.update(id, data)`
+#### `update(id: string, data: UpdateUserBody, tenantId?: string): Promise<Omit<User, 'password_hash'>>`
+- Valida existência no tenant (`404` `'Usuário inexistente.'`), verifica duplicidade de e-mail se alterado (`409` `'E-mail já em uso por outro usuário'`), valida `data.store_id` no tenant via `storeRepo.findByIdAndTenant` (`404` `'Filial informada não encontrada nesta empresa'`), atualiza via `userRepository.update(id, data, tenantId)` (`400` se vazio) e oculta `password_hash`.
 
-#### `delete(id: string): Promise<Omit<User, 'password_hash'>>`
-- **Responsabilidade:** Inativa o usuário no sistema (soft-delete).
-- **Exceções:** `404 Not Found` - `NotFoundError ('Usuário inexistente.')`.
-- **Chamadas de Persistência:** `userRepository.delete(id)`
+#### `delete(id: string, tenantId?: string): Promise<Omit<User, 'password_hash'>>`
+- Verifica existência no tenant (`404` `'Usuário inexistente.'`), executa soft delete no tenant e oculta `password_hash`. *(A trava contra auto-exclusão fica em `UserController.delete`).*
 
 ---
 
 ### 2. Camada de Persistência (`UserRepository`)
+**Arquivo:** `src/repositories/user.repository.ts`
 
-#### `findByEmail(email: string): Promise<User | null>`
-- **Operação Principal:** `SELECT`
-- **Tabela(s) Afetada(s):** `users`.
-- **Parâmetros SQL:**
-  - `$1`: `email` (`string`).
-- **Comportamento da Query:**
-  ```sql
-  SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL LIMIT 1;
-  ```
-- **Retorno TypeScript:** `User | null`.
-
-#### `create(data: CreateUserData): Promise<User>`
-- **Operação Principal:** `INSERT`
-- **Tabela(s) Afetada(s):** `users`.
-- **Parâmetros SQL:**
-  - `$1`: `data.name` (`string`)
-  - `$2`: `data.email` (`string`)
-  - `$3`: `data.password_hash` (`string`)
-  - `$4`: `data.phone` (`string`)
-  - `$5`: `data.role || null` (cast com `COALESCE($5, 'VENDEDOR')::users_roles_types`)
-  - `$6`: `data.commission_rates ?? null` (`number | null` - grava `null` quando omitido)
-- **Comportamento da Query:**
-  ```sql
-  INSERT INTO users (name, email, password_hash, phone, role, commission_rates)
-  VALUES ($1, $2, $3, $4, COALESCE($5, 'VENDEDOR')::users_roles_types, $6)
-  RETURNING *;
-  ```
-- **Retorno TypeScript:** `User`.
+- **`columns`:** `['id', 'tenant_id', 'store_id', 'name', 'email', 'password_hash', 'phone', 'role', 'commission_rates', 'is_active', 'deleted_at', 'created_at']`.
+- **`findByEmail(email: string, tenantId?: string): Promise<User | null>`:** Filtra por `tenant_id = $1 AND LOWER(email) = LOWER($2) AND deleted_at IS NULL` quando `tenantId` é informado (ou `ORDER BY created_at ASC LIMIT 1` global se omitido).
+- **`findAllActiveByEmail(email: string): Promise<User[]>`:** Busca todas as contas ativas e não deletadas com o e-mail informado (`LOWER(email) = LOWER($1) AND deleted_at IS NULL AND is_active = true ORDER BY created_at ASC`).
+- **`findAuthUserById(id: string): Promise<User | null>`:** Query unificada utilizada pelo `authenticateJWT` que executa `INNER JOIN tenants t ON t.id = u.tenant_id` e `LEFT JOIN stores s ON s.id = u.store_id AND s.tenant_id = u.tenant_id`, garantindo que usuário, empresa e filial vinculada (quando `u.store_id IS NOT NULL`) estejam simultaneamente ativos e não deletados.
+- **`create(data: CreateUserData): Promise<User>`:** Insere `tenant_id`, `store_id` (`null` padrão), `role` (`COALESCE($7, 'VENDEDOR')::users_roles_types`), `commission_rates` (`$8 ?? null`).
 
 ---
 
 # Módulo: Lojas (`stores`)
 
-Gerenciamento das concessionárias e unidades físicas, garantindo a unicidade do CNPJ ativo.
+Gerenciamento das concessionárias e filiais com isolamento por `tenant_id`, checagem de unicidade global de CNPJ e consulta pública dupla (loja + empresa) para vitrine.
 
 ---
 
 ### 1. Camada de Serviço (`StoreService`)
+**Arquivo:** `src/services/store.service.ts`
 
-#### `create(data: CreateStoreData): Promise<Store>`
-- **Responsabilidade:** Cadastra uma nova loja garantindo que o CNPJ seja inédito no sistema.
-- **Parâmetros:**
+#### `findByCNPJ(cnpj: string, tenantId?: string): Promise<Store>`
+- Sanitiza CNPJ para 14 dígitos, busca via `repository.findByCNPJ` e exige que `store !== null` e `(!tenantId || store.tenant_id === tenantId)`. Caso contrário lança `NotFoundError('Loja com CNPJ ${cnpj} não encontrada')`.
 
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `data.name` | `string` | Não | Razão social ou nome fantasia |
-| `data.cnpj` | `string` | Não | CNPJ sanitizado (14 dígitos) |
-| `data.phone` | `string` | Não | Telefone de contato |
-| `data.zip_code`| `string` | Não | CEP de 8 dígitos |
-| `data.street`, `number`, `neighborhood`, `city`, `state` | `string` | Não | Endereço completo |
-| `data.complement` | `string` | Sim | Complemento do endereço |
+#### `create(data: unknown, tenantId?: string): Promise<Store>`
+- Exige `tenantId` (`401` `'Tenant não identificado'`), valida body com `createStoreSchema.shape.body`, verifica unicidade de CNPJ (`409` `'CNPJ já cadastrado'`) e persiste com `tenant_id: tenantId`.
 
-- **Regras de Negócio & Fluxos:**
-  1. Verifica se já existe loja cadastrada com o mesmo CNPJ via `repository.findByCNPJ(data.cnpj)`.
-  2. Dispara erro 409 caso o CNPJ já esteja em uso por loja ativa.
-  3. Delega a persistência para `super.create(data)`.
-- **Exceções Disparadas (`AppError`):**
-  - `409 Conflict` - `AppError ('CNPJ já cadastrado', 409)`.
-- **Cenários Testados (Vitest):**
-  - Sucesso ao criar loja quando CNPJ for inédito.
-  - Lançamento de 409 se CNPJ já estiver cadastrado.
-- **Chamadas de Persistência:**
-  - `repository.findByCNPJ(data.cnpj)`
-  - `repository.create(data)`
+#### `find(filters, tenantId)` / `findById(id, tenantId)` / `delete(id, tenantId)`
+- Delegam para `BaseService` escopados por `tenantId`.
 
-#### `findByCNPJ(cnpj: string): Promise<Store>`
-- **Responsabilidade:** Busca loja pelo número de CNPJ ativo.
-- **Exceções Disparadas (`AppError`):**
-  - `404 Not Found` - `NotFoundError ('Loja com CNPJ ${cnpj} não encontrada')`.
-- **Cenários Testados (Vitest):**
-  - Retorno da loja quando CNPJ for localizado.
-  - Lançamento de 404 quando CNPJ não for encontrado.
-- **Chamadas de Persistência:** `repository.findByCNPJ(cnpj)`
+#### `findPublicById(id: string): Promise<Store>`
+- Busca loja via `repository.findById(id)` e valida `!store || !store.is_active || store.deleted_at != null`.
+- Valida também a empresa dona via `tenantRepository.findById(store.tenant_id)` (`!tenant || !tenant.is_active || tenant.deleted_at != null`).
+- Em qualquer inconsistência lança `NotFoundError('Loja não encontrada')`.
 
-#### `update(id: string, data: Partial<CreateStoreData>): Promise<Store>`
-- **Responsabilidade:** Atualiza os dados de uma loja com validação de colisão de CNPJ.
-- **Regras de Negócio & Fluxos:**
-  1. Se `data.cnpj` for fornecido na atualização:
-     - Consulta se o CNPJ existe em outra loja: `findByCNPJ(data.cnpj)`.
-     - Se existir e o ID for diferente do ID da loja atual (`existingStore.id !== id`), aborta com erro 409.
-  2. Executa a atualização via `super.update(id, data)`.
-- **Exceções Disparadas (`AppError`):**
-  - `409 Conflict` - `AppError ('CNPJ já em uso por outra loja', 409)`.
-  - `404 Not Found` - `NotFoundError` (se o ID da loja não existir).
-- **Cenários Testados (Vitest):**
-  - Atualização de nome e telefone sem alterar CNPJ.
-  - Atualização permitida para novo CNPJ que não está em uso.
-  - Bloqueio com erro 409 se o novo CNPJ já pertencer a outra loja.
-- **Chamadas de Persistência:**
-  - `repository.findByCNPJ(data.cnpj)`
-  - `repository.update(id, data)`
+#### `update(id: string, data: unknown, tenantId?: string): Promise<Store>`
+- Verifica pertencimento ao tenant (`super.findById(id, tenantId)`), checa colisão de CNPJ caso alterado (`409` `'CNPJ já em uso por outra loja'`) e executa `super.update(id, updateData, tenantId)`.
 
 ---
 
 ### 2. Camada de Persistência (`StoreRepository`)
+**Arquivo:** `src/repositories/store.repository.ts`
 
-#### `findByCNPJ(cnpj: string): Promise<Store | null>`
-- **Operação Principal:** `SELECT`
-- **Tabela(s) Afetada(s):** `stores`.
-- **Parâmetros SQL:**
-  - `$1`: `cnpj` (`string` com 14 dígitos).
-- **Comportamento da Query:**
-  ```sql
-  SELECT * FROM stores WHERE cnpj = $1 AND deleted_at IS NULL LIMIT 1;
-  ```
-- **Retorno TypeScript:** `Store | null`.
+- **`columns`:** inclui `'tenant_id'`, `'id'`, `'name'`, `'phone'`, `'zip_code'`, `'street'`, `'number'`, `'neighborhood'`, `'city'`, `'state'`, `'complement'`, `'cnpj'`, `'is_active'`, `'deleted_at'`, `'created_at'`.
+- **`findByCNPJ(cnpj: string): Promise<Store | null>`:** `SELECT * FROM stores WHERE cnpj = $1 AND deleted_at IS NULL LIMIT 1;`.
+- **`findByIdAndTenant(id: string, tenantId: string): Promise<Store | null>`:** `SELECT * FROM stores WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1;`.
 
 ---
 
 # Módulo: Marcas (`brands`)
 
-Gerenciamento das marcas de veículos (Toyota, Honda, Ford, etc.).
+Catálogo híbrido de marcas (`tenant_id IS NULL` para globais + `tenant_id` da empresa para marcas próprias).
 
 ---
 
 ### 1. Camada de Serviço (`BrandService`)
-Herda integralmente de `BaseService<Brand, CreateBrandData>`.
+**Arquivo:** `src/services/brand.service.ts`
 
-- **Métodos Expostos:** `findById`, `find`, `create`, `update`, `delete`.
-- **Regras:**
-  - Soft-delete padrão (`deleted_at = NOW()`, `is_active = false`).
-  - Bloqueio de atualização vazia com `BadRequestError`.
-  - Lançamento de `NotFoundError` caso a marca não exista.
-- **Cenários Testados (Vitest):**
-  - CRUD completo com mock de repositório e verificação de chamadas.
+- **`find(filters, tenantId)`:** Chama `repository.findForTenant(tenantId, filters)`.
+- **`findById(id, tenantId)`:** Chama `repository.findByIdForTenant(id, tenantId)` (`404` `'Marca não encontrada'`).
+- **`create(data, tenantId)`:** Valida com `createBrandSchema`, verifica duplicidade global ou no tenant via `findByNameForTenant` (`409` `'Marca já cadastrada'`) e cria com `tenant_id: tenantId ?? null`.
+- **`update(id, data, tenantId)` / `delete(id, tenantId)`:**
+  - Busca via `findByIdForTenant(id, tenantId)` (`404` se não existir ou pertencer a outro tenant).
+  - Se `brand.tenant_id === null || (tenantId && brand.tenant_id !== tenantId)` lança **`AppError('Não é permitido alterar ou excluir uma marca global do sistema', 403)`**.
+  - No `update`, valida duplicidade de nome caso alterado (`409` `'Nome de marca já cadastrado'`).
+  - Persiste restrito ao `tenantId` (`softDelete: true, hasActiveStatus: true`).
 
 ### 2. Camada de Persistência (`BrandRepository`)
-- **Tabela:** `brands`.
-- **Opções:** `{ softDelete: true, hasActiveStatus: true }`.
-- **Herança:** Utiliza os métodos de SQL bruto dinâmico de `BaseRepository`.
+**Arquivo:** `src/repositories/brand.repository.ts`
+
+- **`findForTenant(tenantId?, filters)`:** Filtra `deleted_at IS NULL` (salvo `includeDeleted`), `(tenant_id IS NULL OR tenant_id = $n)` (ou `tenant_id IS NULL` se sem tenant), `name` (`=`/`ILIKE`) ordenado por `name ASC`.
+- **`findByIdForTenant(id, tenantId?)` / `findByNameForTenant(name, tenantId?)`:** Consideram `(tenant_id IS NULL OR tenant_id = $2) AND deleted_at IS NULL`.
 
 ---
 
 # Módulo: Opcionais (`features`)
 
-Gerenciamento dos acessórios veiculares (ex: Teto Solar, Bancos em Couro).
+Catálogo híbrido de opcionais (`tenant_id IS NULL` para globais + `tenant_id` da empresa para itens customizados).
 
 ---
 
 ### 1. Camada de Serviço (`FeatureService`)
-Herda de `BaseService<Feature, CreateFeatureData>`.
+**Arquivo:** `src/services/feature.service.ts`
 
-- **Particularidade de Negócio:** Opcionais utilizam **hard delete** no banco de dados para evitar acumular referências órfãs.
-- **Cenários Testados (Vitest):**
-  - Criação, listagem e remoção física de opcionais.
+- **`find(filters, tenantId)`:** Chama `repository.findForTenant(tenantId, filters)`.
+- **`findById(id, tenantId)`:** Chama `repository.findByIdForTenant(id, tenantId)` (`404` `'Opcional não encontrado'`).
+- **`create(data, tenantId)`:** Valida `createFeatureSchema`, verifica duplicidade via `findByNameForTenant` (`409` `'Opcional já cadastrado'`) e cria com `tenant_id: tenantId ?? null`.
+- **`update(id, data, tenantId)` / `delete(id, tenantId)`:**
+  - Se `feature.tenant_id === null || (tenantId && feature.tenant_id !== tenantId)` lança **`AppError('Não é permitido alterar ou excluir um opcional global do sistema', 403)`**.
+  - `update` verifica duplicidade de nome (`409` `'Nome de opcional já cadastrado'`).
 
 ### 2. Camada de Persistência (`FeatureRepository`)
-- **Tabela:** `features`.
-- **Opções:** `{ softDelete: false, hasActiveStatus: false }`.
-- **Query de Exclusão Físico-Relacional:**
-  ```sql
-  DELETE FROM features WHERE id = $1 RETURNING *;
-  ```
+**Arquivo:** `src/repositories/feature.repository.ts`
+
+- **Opções atuais:** `super('features', { softDelete: false, hasActiveStatus: false })` — exclusão física (`DELETE FROM features WHERE id = $1 AND tenant_id = $2 RETURNING *`), sujeita a `ON DELETE RESTRICT` de `vehicle_features` no `schema.sql`. *(Nota: `schema.sql` já possui colunas `is_active` e `deleted_at` pendentes de alinhamento futuro no repositório).*
+- **`findForTenant(tenantId?, filters)`:** Filtra `(tenant_id IS NULL OR tenant_id = $1)` e suporta filtros `name` (`=` e `ILIKE`), ordenando por `name ASC`.
+- **`findByIdForTenant(id, tenantId?)` / `findByNameForTenant(name, tenantId?)` / `findByIdsForTenant(ids, tenantId?)`:** Consultas híbridas usadas tanto pelo CRUD quanto por `VehicleService` para validar lotes de `feature_ids`.
 
 ---
 
 # Módulo: Modelos (`models`)
 
-Modelos vinculados às marcas fabricantes (Corolla -> Toyota, Civic -> Honda).
+Modelos vinculados às marcas visíveis pelo tenant, estritamente isolados por `tenant_id`.
 
 ---
 
 ### 1. Camada de Serviço (`ModelService`)
-Herda de `BaseService<Model, CreateModelData>`.
+**Arquivo:** `src/services/model.service.ts`
 
-- **Regras de Negócio:**
-  - Vínculo obrigatório com `brand_id`.
-  - Soft-delete padrão.
-- **Cenários Testados (Vitest):**
-  - Validações de integridade e orquestração de chamadas ao repositório.
+- Exige `tenantId` em todas as operações (`AppError('Tenant não identificado', 400)`).
+- **`create(data, tenantId)` / `update(id, data, tenantId)`:**
+  - Valida existência e visibilidade da marca via `brandRepository.findByIdForTenant(brand_id, tenantId)` (`404` `'Marca informada não encontrada'`).
+  - Valida unicidade do nome na marca dentro do tenant via `repository.findByNameAndBrand(name, brandId, tenantId)` (`409` `'Modelo já cadastrado para esta marca'`).
+- **`find`, `findById`, `delete`:** Escopados estritamente por `tenantId` (`softDelete: true, hasActiveStatus: true`).
 
 ### 2. Camada de Persistência (`ModelRepository`)
-- **Tabela:** `models`.
-- **Opções:** `{ softDelete: true, hasActiveStatus: true }`.
+**Arquivo:** `src/repositories/model.repository.ts`
+
+- **`findByNameAndBrand(name, brandId, tenantId)`:** Busca case-insensitive (`lower(name) = lower($3)`) ativa no tenant/marca.
+- **`findByBrandId(brandId, tenantId)`:** Lista modelos ativos de uma marca no tenant ordenados por `name ASC`.
 
 ---
 
 # Módulo: Veículos (`vehicles`)
 
-Módulo crítico do sistema: orquestração de estoque, transações ACID com tabela associativa de opcionais (`vehicle_features`), métricas anti-fraude e sanitização LGPD.
+Módulo central do sistema: controle multi-tenant (`tenantId`) e multi-store (`userStoreId` / `filterStoreId`), transações ACID com `vehicle_features`, sanitização LGPD (`RN003`) e métricas em lote (`RN007`).
 
 ---
 
 ### 1. Camada de Serviço (`VehicleService`)
+**Arquivo:** `src/services/vehicle.service.ts`
 
-#### `create(data: CreateVehicleData & { feature_ids?: string[] }, featureIdsOverride?: string[]): Promise<Vehicle>`
-- **Responsabilidade:** Cadastra um novo veículo no estoque, orquestra a associação de opcionais e calcula o dígito final da placa.
-- **Parâmetros:**
+- **`TenantExecutionContext`:** `{ tenantId: string; userStoreId?: string | null; filterStoreId?: string | null }`.
 
-| Parâmetro | Tipo | Opcional | Descrição |
-| :--- | :--- | :--- | :--- |
-| `data` | `CreateVehicleData` | Não | Atributos cadastrais do veículo |
-| `data.feature_ids` | `string[]` | Sim | Array de UUIDs dos opcionais vinculados |
-| `featureIdsOverride` | `string[]` | Sim | Sobrescrita manual da lista de opcionais |
+#### `create(data, featureIdsOverride?, ctx?)`
+1. Exige `tenantId` (`400` `'Tenant não identificado'`).
+2. Se `ctx?.userStoreId` estiver definido e `data.store_id !== ctx.userStoreId`, lança `AppError('Usuário só tem permissão para operar veículos da sua própria filial', 403)`.
+3. Valida pertencimento da loja ao tenant (`storeRepository.findByIdAndTenant(data.store_id, tenantId)` -> `404`), do modelo ao tenant (`modelRepository.findById(data.model_id, tenantId)` -> `404`) e dos opcionais ao catálogo visível do tenant (`featureRepository.findByIdsForTenant(uniqueIds, tenantId)` -> `404`).
+4. Normaliza placa (`normalizePlate`) e verifica unicidade no tenant (`repository.findByPlate(plate, tenantId)` -> `409` `'Placa já cadastrada para outro veículo ativo'`).
+5. Calcula `plate_last_digit` e executa `repository.createWithFeatures(payload, featureIds)`.
 
-- **Regras de Negócio & Fluxos:**
-  1. Separa o array de `feature_ids` do payload de dados primários do veículo.
-  2. Valida unicidade da placa: se `full_license_plate` estiver preenchida, invoca `repository.findByPlate`. Se existir veículo ativo, dispara erro 409.
-  3. **RN002 / RN006: Cálculo Automático do Dígito Final da Placa**: Extrai o último caractere da placa (`Number(plate.slice(-1))`) e atribui a `plate_last_digit`.
-  4. Invoca o repositório transacional `createWithFeatures(payload, featureIds)`.
-- **Exceções Disparadas (`AppError`):**
-  - `409 Conflict` - `AppError ('Placa já cadastrada para outro veículo ativo', 409)`.
-  - `400 Bad Request` - `BadRequestError ('Erro ao cadastrar veículo')`.
-- **Cenários Testados (Vitest):**
-  - Criação de veículo com cálculo correto de `plate_last_digit` a partir da placa.
-  - Associação transacional de múltiplos `feature_ids`.
-  - Rejeição com 409 ao tentar cadastrar placa duplicada.
-- **Chamadas de Persistência:**
-  - `repository.findByPlate(plate)`
-  - `repository.createWithFeatures(payload, featureIds)`
+#### `update(id, data, featureIdsOverride?, ctxParam?)`
+1. Verifica se há dados ou `featureIds` informados (`400`).
+2. Busca veículo no tenant (`repository.findById(id, tenantId)` -> `404`).
+3. Bloqueia com `403` se `ctx?.userStoreId` diferir de `currentVehicle.store_id` ou tentar transferir para outro `store_id`.
+4. Valida alterações de `store_id`, `model_id`, `full_license_plate` (unicidade no tenant + recálculo de `plate_last_digit`) e `feature_ids`.
+5. Valida regras de negócio condicionais no estado mesclado (`PROPRIO` exige `purchase_price > 0`; `CONSIGNADO` exige `owner_name`, `owner_contact`, `owner_price > 0`, `store_commission_rate >= 0`).
+6. Atualiza atomicamente via `repository.updateWithFeatures(id, cleanData, featureIds, tenantId)`.
 
-#### `update(id: string, data: Partial<CreateVehicleData> & { feature_ids?: string[] }, featureIdsOverride?: string[]): Promise<Vehicle>`
-- **Responsabilidade:** Atualiza os dados do veículo e sincroniza a lista de opcionais, validando integridade de regras de negócio para venda própria e consignada.
-- **Regras de Negócio & Fluxos:**
-  1. Valida se há ao menos um atributo ou array de `feature_ids` informado.
-  2. Se a placa for alterada, valida duplicidade garantindo que não pertença a outro veículo (`existing.id !== id`).
-  3. Recalcula `plate_last_digit` caso a placa tenha sido modificada.
-  4. Recupera o veículo atual com `findById(id)` (dispara `404 Not Found` caso não exista).
-  5. Mescla os dados atuais com os dados atualizados (`merged = { ...currentVehicle, ...cleanData }`) e valida as regras de negócio:
-     - **Veículo Próprio (`sale_type === 'PROPRIO'`):** `purchase_price` é obrigatório e deve ser maior que zero (`> 0`).
-     - **Veículo Consignado (`sale_type === 'CONSIGNADO'`):** `owner_name` (min 2 chars), `owner_contact` (min 8 chars), `owner_price` (`> 0`) e `store_commission_rate` (`>= 0`) são estritamente obrigatórios.
-  6. Executa atualização atômica via `repository.updateWithFeatures`.
-- **Exceções Disparadas (`AppError`):**
-  - `400 Bad Request` - `BadRequestError ('Nenhum dado informado para atualização')`.
-  - `400 Bad Request` - `BadRequestError ('Preço de compra é obrigatório e deve ser maior que zero para veículos próprios')`.
-  - `400 Bad Request` - `BadRequestError ('Dados do proprietário, valor líquido e comissão são obrigatórios para veículos consignados')`.
-  - `409 Conflict` - `AppError ('Placa já cadastrada para outro veículo ativo', 409)`.
-  - `404 Not Found` - `NotFoundError ('Veículo não encontrado')`.
-- **Cenários Testados (Vitest):**
-  - Recálculo de final de placa ao atualizar `full_license_plate`.
-  - Substituição da lista de opcionais mantendo consistência.
-  - Bloqueio com erro 400 se `purchase_price` for omitido/inválido ao manter ou alterar para `PROPRIO`.
-  - Bloqueio com erro 400 se dados de proprietário/comissão forem omitidos/inválidos em `CONSIGNADO`.
-- **Chamadas de Persistência:**
-  - `repository.findById(id)`
-  - `repository.findByPlate(plate)`
-  - `repository.updateWithFeatures(id, cleanData, featureIds)`
+#### `delete(id, tenantIdOrCtx?)`
+- Busca veículo no tenant (`404`), verifica `userStoreId` (`403`) e executa `repository.delete(id, tenantId)`.
 
-#### `findPublic(query: Record<string, unknown>): Promise<{ items: Record<string, unknown>[]; total: number; page: number; limit: number }>`
-- **Responsabilidade:** Vitrine pública. Aplica sanitização de proteção de dados (LGPD) em cada item retornado e impede visualização de registros deletados.
-- **Regras de Negócio & Fluxos:**
-  1. Força as flags `publicOnly = true` e `include_deleted = false` (restringe a status ATIVO e RESERVADO, ignorando qualquer tentativa externa de consultar excluídos).
-  2. Executa busca paginada com `repository.findCatalog`.
-  3. Mapeia todos os resultados através de `sanitizeVehicleForRole(item, 'PUBLICO')`, removendo custos de compra, placa integral e dados de proprietário.
-- **Chamadas de Persistência:** `repository.findCatalog(filters)`
+#### `findPublic(query, ctx)` e `findAdmin(query, role, ctx)`
+- `findPublic`: força `publicOnly = true` e `include_deleted = false`, atribui `filters.tenant_id = ctx.tenantId` e sobrescreve defensivamente `filters.store_id = ctx.filterStoreId ?? undefined`. Sanitiza todos os itens com `sanitizeVehicleForRole(item, 'PUBLICO')`.
+- `findAdmin`: define `publicOnly = false`, atribui `filters.tenant_id = ctx.tenantId` e força `filters.store_id = ctx.userStoreId ?? ctx.filterStoreId ?? undefined` (usuário de filial só enxerga sua filial). Sanitiza com `sanitizeVehicleForRole(item, role)`.
 
-#### `findAdmin(query: Record<string, unknown>, role: string): Promise<{ ... }>`
-- **Responsabilidade:** Listagem administrativa de veículos para operadores.
-- **Regras de Negócio & Fluxos:**
-  1. Define `publicOnly = false` para permitir visualizar todos os status (VENDIDO, INATIVO, etc.).
-  2. Sanitiza os registros de acordo com a Role informada (`ADMIN` e `VENDEDOR` veem margens; `VISUALIZADOR` tem dados sensíveis ocultos).
-- **Chamadas de Persistência:** `repository.findCatalog(filters)`
+#### `findByIdPublic(id, ip, userAgent, ctx?)` e `findByIdAdmin(id, role, ctx)`
+- `findByIdPublic`: consulta `findDetailedById(id, { publicOnly: true, tenant_id: ctx?.tenantId, store_id: ctx?.filterStoreId ?? undefined })`, registra visualização via `viewTracker.trackView(id, ip, userAgent)` (TTL 30 min em memória, flush assíncrono a cada 60s em `server.ts`), soma `viewTracker.getPendingViews(id)` ao `total_views` retornado e sanitiza para `'PUBLICO'`.
+- `findByIdAdmin`: consulta `findDetailedById(id, { publicOnly: false, tenant_id: ctx.tenantId, store_id: ctx.userStoreId ?? undefined })`, soma `getPendingViews(id)` sem incrementar views e sanitiza pela `role`.
 
-#### `findByIdPublic(id: string, ip: string, userAgent: string): Promise<Record<string, unknown>>`
-- **Responsabilidade:** Exibe a página de detalhes para o consumidor final e computa métricas de audiência anti-fraude.
-- **Regras de Negócio & Fluxos:**
-  1. Busca o veículo detalhado com `findDetailedById(id, { publicOnly: true })`.
-  2. Dispara 404 se não for localizado ou estiver inativo.
-  3. **RN007: Métrica Anti-Fraude**: Verifica com `viewTracker.shouldIncrement(id, ip, userAgent)` se aquele IP/User-Agent já visualizou o veículo recentemente. Se liberado, dispara `incrementViewMetrics(id)`.
-  4. Retorna a entidade sanitizada para o perfil público.
-- **Exceções Disparadas (`AppError`):**
-  - `404 Not Found` - `NotFoundError ('Veículo não encontrado')`.
-- **Cenários Testados (Vitest):**
-  - Incremento de visualização na primeira chamada.
-  - Bloqueio de incremento em chamadas consecutivas do mesmo IP/User-Agent.
-- **Chamadas de Persistência:**
-  - `repository.findDetailedById(id, { publicOnly: true })`
-  - `repository.incrementViewMetrics(id)`
+#### `comparePublic(ids, ctx?)`
+- Exige 2 a 3 IDs sem duplicatas (`400`), consulta `repository.findByIds(ids, { publicOnly: true, tenant_id: ctx?.tenantId, store_id: ctx?.filterStoreId ?? undefined })` e sanitiza para `'PUBLICO'`.
 
-#### `findByIdAdmin(id: string, role: string): Promise<Record<string, unknown>>`
-- **Responsabilidade:** Detalhes gerenciais para o backoffice sem restrição de status público.
-- **Chamadas de Persistência:** `repository.findDetailedById(id, { publicOnly: false })`
-
-#### `comparePublic(ids: string[]): Promise<Record<string, unknown>[]>`
-- **Responsabilidade:** Comparador de especificações veiculares (UC02).
-- **Regras de Negócio & Fluxos:**
-  1. Valida se a quantidade de veículos está entre 2 e 3 (`ids.length >= 2 && ids.length <= 3`).
-  2. Busca os dados detalhados via `repository.findByIds(ids, { publicOnly: true })`.
-  3. Sanitiza a saída para o público.
-- **Exceções Disparadas (`AppError`):**
-  - `400 Bad Request` - `BadRequestError ('O comparador exige no mínimo 2 e no máximo 3 veículos')`.
-- **Chamadas de Persistência:** `repository.findByIds(ids, { publicOnly: true })`
+#### `updateInspectionReport(id, reportUrl, ctx)`
+- Valida existência no tenant (`404`) e restrição de filial (`403`), atualizando `inspection_report_url`.
 
 ---
 
 ### 2. Camada de Persistência (`VehicleRepository`)
+**Arquivo:** `src/repositories/vehicle.repository.ts` (`softDelete: true, hasActiveStatus: false`)
 
-#### `createWithFeatures(data: CreateVehicleData, featureIds: string[]): Promise<Vehicle>`
-- **Operação Principal:** **Transação ACID Manual (`BEGIN` / `COMMIT` / `ROLLBACK`)**
-- **Tabela(s) Afetada(s):** `vehicles`, `vehicle_features`.
-- **Parâmetros SQL:**
-  - Inserção em `vehicles`: Mapeamento dinâmico `$1..$n` via `buildInsertQuery`.
-  - Inserção em `vehicle_features`: `$1 = vehicle.id`, `$2 = featureId`.
-- **Comportamento da Query:**
-  1. Inicia transação: `client.query('BEGIN')`.
-  2. Insere o veículo e obtém a linha gerada (`RETURNING *`).
-  3. Itera sobre o array `featureIds` executando:
-     ```sql
-     INSERT INTO vehicle_features (vehicle_id, feature_id) VALUES ($1, $2);
-     ```
-  4. Executa `COMMIT` e libera o cliente para o pool (`client.release()`).
-  5. Em caso de erro, executa `ROLLBACK`.
-- **Retorno TypeScript:** `Vehicle`.
-
-#### `updateWithFeatures(id: string, data: Partial<CreateVehicleData>, featureIds?: string[]): Promise<Vehicle | null>`
-- **Operação Principal:** **Transação ACID Manual (`BEGIN` / `COMMIT` / `ROLLBACK`)**
-- **Tabela(s) Afetada(s):** `vehicles`, `vehicle_features`.
-- **Parâmetros SQL:**
-  - Atualização do veículo com `buildUpdateQuery` (respeitando soft-delete).
-  - Caso nenhum dado cadastral seja enviado (apenas `featureIds`), busca o veículo garantindo que não esteja deletado:
-    ```sql
-    SELECT * FROM vehicles WHERE id = $1 AND deleted_at IS NULL;
-    ```
-  - Limpeza de opcionais: `DELETE FROM vehicle_features WHERE vehicle_id = $1`.
-  - Reinserção atômica de opcionais em loop.
-- **Comportamento da Query:** Garante sincronização consistente entre os dados do veículo e sua lista de opcionais associados, impedindo modificações em veículos com soft delete.
-- **Retorno TypeScript:** `Vehicle | null`.
-
-#### `findCatalog(filters: FindCatalogFilters): Promise<{ items: ...; total: number; page: number; limit: number }>`
-- **Operação Principal:** `SELECT` com Agregações, Subqueries e Paginação.
-- **Tabela(s) Afetada(s):**
-  - `vehicles v`
-  - `JOIN models m ON v.model_id = m.id`
-  - `JOIN brands b ON m.brand_id = b.id`
-  - Subquery em `vehicle_photos vp` para foto principal (`is_primary = true`).
-  - Subquery em `vehicle_features vf` para filtro de múltiplos opcionais.
-- **Parâmetros SQL Posicionais:** Gerados sequencialmente (`$1, $2, ...`):
-  - `$n`: Status, Categoria, Marca, Modelo, Preços (`min_price`, `max_price`), Anos (`min_year`, `max_year`), etc.
-  - `$n, $n+1`: Array de UUIDs e contagem exata no filtro `feature_ids`:
-    ```sql
-    v.id IN (
-      SELECT vf.vehicle_id 
-      FROM vehicle_features vf 
-      WHERE vf.feature_id = ANY($1::uuid[]) 
-      GROUP BY vf.vehicle_id 
-      HAVING COUNT(DISTINCT vf.feature_id) = $2
-    )
-    ```
-  - Últimos parâmetros: `LIMIT` e `OFFSET` para paginação calculada:
-    `OFFSET = (page - 1) * limit`.
-- **Regras SQL Especiais:**
-  - **RN001 (Regra do Flex):**
-    - Se `fuel_type === 'GASOLINA'`: Cláusula SQL `v.fuel_type IN ('GASOLINA', 'FLEX')`.
-    - Se `fuel_type === 'ALCOOL'`: Cláusula SQL `v.fuel_type IN ('ALCOOL', 'FLEX')`.
-- **Retorno TypeScript:**
-  `{ items: (Vehicle & { brand_name: string; model_name: string; cover_photo_url: string | null })[]; total: number; page: number; limit: number }`.
-
-#### `findDetailedById(id: string, options: { publicOnly?: boolean }): Promise<DetailedVehicle | null>`
-- **Operação Principal:** `SELECT` com Múltiplas Consultas Relacionais.
-- **Tabela(s) Afetada(s):** `vehicles`, `models`, `brands`, `vehicle_features`, `features`, `vehicle_photos`.
-- **Parâmetros SQL:** `$1 = id`.
-- **Comportamento da Query:**
-  1. Busca o veículo com join em marca e modelo.
-  2. Consulta os opcionais ordenados:
-     ```sql
-     SELECT f.id, f.name 
-     FROM vehicle_features vf 
-     JOIN features f ON vf.feature_id = f.id 
-     WHERE vf.vehicle_id = $1 
-     ORDER BY f.name ASC;
-     ```
-  3. Consulta a galeria de fotos ordenada por `display_order ASC`:
-     ```sql
-     SELECT id, thumb_path, full_path, display_order, is_primary 
-     FROM vehicle_photos 
-     WHERE vehicle_id = $1 
-     ORDER BY display_order ASC;
-     ```
-  4. Agrega as entidades no objeto composto `DetailedVehicle`.
-- **Retorno TypeScript:** `DetailedVehicle | null`.
-
-#### `incrementViewMetrics(id: string): Promise<void>`
-- **Operação Principal:** **Transação ACID com Upsert Relacional (`ON CONFLICT`)**
-- **Tabela(s) Afetada(s):** `vehicles`, `vehicle_metrics`.
-- **Parâmetros SQL:** `$1 = id`.
-- **Comportamento da Query:**
-  ```sql
-  BEGIN;
-  UPDATE vehicles SET total_views = total_views + 1 WHERE id = $1;
-
-  INSERT INTO vehicle_metrics (vehicle_id, recorded_date, views_count)
-  VALUES ($1, CURRENT_DATE, 1)
-  ON CONFLICT (vehicle_id, recorded_date)
-  DO UPDATE SET views_count = vehicle_metrics.views_count + 1;
-  COMMIT;
-  ```
-- **Retorno TypeScript:** `Promise<void>`.
-
-#### `findByPlate(plate: string): Promise<Vehicle | null>`
-- **Operação Principal:** `SELECT`
-- **Tabela(s) Afetada(s):** `vehicles`.
-- **Parâmetros SQL:** `$1 = plate`.
-- **Comportamento da Query:**
-  ```sql
-  SELECT * FROM vehicles WHERE full_license_plate = $1 AND deleted_at IS NULL LIMIT 1;
-  ```
-- **Retorno TypeScript:** `Vehicle | null`.
-
-#### `delete(id: string): Promise<Vehicle | null>`
-- **Operação Principal:** `UPDATE` (Soft Delete com Inativação de Status)
-- **Tabela(s) Afetada(s):** `vehicles`.
-- **Parâmetros SQL:** `$1 = id`.
-- **Comportamento da Query:**
-  ```sql
-  UPDATE vehicles
-  SET deleted_at = NOW(), status = 'INATIVO', updated_at = NOW()
-  WHERE id = $1 AND deleted_at IS NULL
-  RETURNING *;
-  ```
-- **Retorno TypeScript:** `Vehicle | null`.
+- **`delete(id, tenantId?)`:** `UPDATE vehicles SET deleted_at = NOW(), status = 'INATIVO', updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL [AND tenant_id = $2] RETURNING *;`.
+- **`findByPlate(plate, tenantId?)`:** Consulta placa ativa filtrada por `tenant_id` quando fornecido.
+- **`createWithFeatures(data, featureIds)`:** Transação `BEGIN ... COMMIT/ROLLBACK` inserindo em `vehicles` e `vehicle_features`.
+- **`updateWithFeatures(id, data, featureIds?, tenantId?)`:** Transação atualizando `vehicles` com `{ tenantId }` no `buildUpdateQuery` e substituindo `vehicle_features` caso `featureIds !== undefined`.
+- **`updateInspectionReport(id, url, tenantId?)`:** Atualiza `inspection_report_url` e `updated_at` filtrado por `id`, `deleted_at IS NULL` e `tenant_id`.
+- **`findCatalog(filters)`:** Monta query paginada com `JOIN models` e `JOIN brands`, subquery de capa (`is_primary = true`), filtro `tenant_id` e `store_id`, regra Flex (`RN001`: `GASOLINA` inclui `FLEX`; `ALCOOL` inclui `FLEX`), regra pública (`RN002`: `ATIVO`/`RESERVADO`), filtro cumulativo de `feature_ids` (`GROUP BY ... HAVING COUNT(DISTINCT vf.feature_id) = $n`) e busca textual em `v.title ILIKE`.
+- **`findDetailedById(id, options)` / `findByIds(ids, options)`:** Filtram por `tenant_id`, `store_id` e `publicOnly`, agregando `brand`, `model`, `features` e `photos`.
+- **`incrementBatchViews(views: Map<string, number>)`:** Transação em lote chamada a cada 60s pelo `server.ts`, somando `count` em `vehicles.total_views` e fazendo upsert em `vehicle_metrics` (`ON CONFLICT (vehicle_id, recorded_date)`).
+- **`incrementViewMetrics(id)`:** Incremento unitário transacional em `vehicles` e `vehicle_metrics`.
 
 ---
 
 # Módulo de Mídias e Galeria (`VehicleMedia`)
 
 ## 1. `VehicleMediaService`
-- **Arquivo:** `src/services/vehicle-media.service.ts`
-- **Responsabilidade:** Orquestra upload, conversão em WebP (Sharp), exclusão física, reordenação da galeria de fotos e gestão do laudo pericial (PDF).
+**Arquivo:** `src/services/vehicle-media.service.ts`
 
-### Métodos:
-- `uploadPhotos(vehicleId: string, files: Express.Multer.File[]): Promise<VehiclePhoto[]>`:
-  - Valida existência do veículo (404).
-  - Garante recebimento de arquivos (400).
-  - Converte em WebP q80 (400x300 thumb cover, 1280x960 full inside).
-  - Se veículo possui 0 fotos, primeira torna-se capa (`is_primary = true`, `display_order = 0`) conforme RN008.
-- `reorderPhotos(vehicleId: string, photoIds: string[]): Promise<VehiclePhoto[]>`:
-  - Valida se todos os `photoIds` pertencem ao veículo e se a contagem confere com o total cadastrado.
-  - Executa reordenação atômica em transação ACID via `vehiclePhotoRepository.reorder`. Posição 0 torna-se `is_primary = true`.
-- `deletePhoto(vehicleId: string, photoId: string): Promise<void>`:
-  - Remove arquivos do disco (`deletePhotoFiles`) e do banco (`delete`).
-  - Se a foto excluída era a capa (`is_primary = true`), elege a próxima de menor `display_order` como capa.
-- `uploadInspectionReport(vehicleId: string, file: Express.Multer.File): Promise<Vehicle>`:
-  - Remove PDF antigo do disco se existir.
-  - Grava novo PDF em `uploads/vehicles/reports/<uuid>.pdf`.
-  - Atualiza `inspection_report_url` no banco de dados.
-- `deleteInspectionReport(vehicleId: string): Promise<Vehicle | null>`:
-  - Remove arquivo físico de laudo do disco e define `inspection_report_url = null`.
-
----
+- **`ensureVehicleAccess(vehicleId, tenantId, userStoreId?)`:** Valida que o veículo existe no tenant (`404` `'Veículo não encontrado'`) e que pertence à filial do usuário quando `userStoreId` está definido (`403` `'Usuário só tem permissão para gerenciar mídias de veículos da sua própria filial'`).
+- **`uploadPhotos(vehicleId, files, tenantId, userStoreId?)`:**
+  - Valida acesso (`ensureVehicleAccess`) e presença de arquivos (`400`).
+  - Processa cada arquivo temporário (`file.path`) via `processVehiclePhoto`, salva `thumbBuffer` e `fullBuffer` em `this.storage.save(...)` (WebP 80%) e insere em lote via `vehiclePhotoRepository.createMany`.
+  - **Rollback compensatório:** Em erro de processamento ou banco, remove fotos já salvas do lote via `deletePhotoFiles`; no `finally`, remove sempre os arquivos temporários via `this.storage.deleteTempFile(file.path)`.
+- **`reorderPhotos(vehicleId, photoIds, tenantId, userStoreId?)`:** Valida acesso e contagem total (`400` se divergir) e executa `vehiclePhotoRepository.reorder` (índice `0` vira `is_primary = true`).
+- **`deletePhoto(vehicleId, photoId, tenantId, userStoreId?)`:** Valida acesso, pertencimento da foto ao veículo (`400`), remove arquivos (`deletePhotoFiles`) e registro no banco, e elege a próxima foto de menor `display_order` como capa (`setPrimary`) caso a excluída fosse principal.
+- **`uploadInspectionReport(vehicleId, file, tenantId, userStoreId?)`:** Valida acesso e `file.path`, salva PDF via `this.storage.save('reports', ...)`, atualiza `inspection_report_url` no banco e só remove o PDF anterior (`deleteReportFile`) **após** sucesso do banco. Em erro, remove o novo arquivo e preserva o antigo; no `finally`, limpa o arquivo temporário.
+- **`deleteInspectionReport(vehicleId, tenantId, userStoreId?)`:** Valida acesso, remove o arquivo físico (`deleteReportFile`) e define `inspection_report_url = null`.
 
 ## 2. `VehiclePhotoRepository`
-- **Arquivo:** `src/repositories/vehicle-photo.repository.ts`
-- **Responsabilidade:** Persistência relacional na tabela `vehicle_photos`.
+**Arquivo:** `src/repositories/vehicle-photo.repository.ts`
 
-### Métodos:
-- `createMany(vehicleId: string, photos: CreatePhotoData[]): Promise<VehiclePhoto[]>`: Inserção múltipla parametrizada em lote.
-- `findByVehicleId(vehicleId: string): Promise<VehiclePhoto[]>`: Lista fotos do veículo ordenadas por `display_order ASC`.
-- `findById(id: string): Promise<VehiclePhoto | null>`: Busca foto por ID.
-- `countByVehicleId(vehicleId: string): Promise<{ count: number, maxOrder: number }>`: Contagem e maior display_order.
-- `reorder(vehicleId: string, photoIds: string[]): Promise<VehiclePhoto[]>`: Transação ACID (`BEGIN / COMMIT / ROLLBACK`) atualizando ordem e capa.
-- `delete(id: string): Promise<boolean>`: Exclusão física da linha no banco.
-- `setPrimary(vehicleId: string, photoId: string): Promise<void>`: Transação definindo nova foto como capa principal.
-
+- **`createMany(vehicleId, photos)`:** Transação explícita (`BEGIN ... COMMIT/ROLLBACK`) para inserção em lote em `vehicle_photos`.
+- **`findByVehicleId(vehicleId)`:** Lista fotos ordenadas por `display_order ASC, created_at ASC`.
+- **`findById(id)`** e **`countByVehicleId(vehicleId)`:** Consulta foto unitária ou contagem + `MAX(display_order)`.
+- **`reorder(vehicleId, photoIds)`:** Transação ACID validando que todos os IDs pertencem ao veículo e definindo `display_order = index` e `is_primary = (index === 0)` (`RN008`).
+- **`delete(id)`** e **`setPrimary(vehicleId, photoId)`:** Exclusão física e redefinição transacional da foto principal.

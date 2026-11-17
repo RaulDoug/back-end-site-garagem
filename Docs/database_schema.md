@@ -129,6 +129,8 @@ erDiagram
         uuid id PK "NOT NULL, DEFAULT gen_random_uuid()"
         uuid tenant_id FK "NULLABLE"
         varchar_255 name "NOT NULL"
+        boolean is_active "NULLABLE, DEFAULT true"
+        timestamp deleted_at "NULLABLE"
     }
 
     VEHICLE_FEATURES {
@@ -255,8 +257,8 @@ erDiagram
         uuid user_id FK "NOT NULL"
         timestamp changed_at "NULLABLE, DEFAULT now()"
         varchar_255 changed_field "NULLABLE"
-        varchar_255 old_value "NULLABLE"
-        varchar_255 new_value "NULLABLE"
+        text old_value "NULLABLE"
+        text new_value "NULLABLE"
     }
 
     HERO_BANNER {
@@ -278,21 +280,21 @@ erDiagram
 | Entidade | Chave Primária (PK) | Chaves Estrangeiras (FK) | Campos Obrigatórios (`NOT NULL`) Críticos |
 | :--- | :--- | :--- | :--- |
 | **TENANTS** | `id` (UUID) | - | `corporate_name`, `trade_name`, `cnpj` |
-| **STORES** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT) | `tenant_id`, `name`, `phone`, `zip_code`, `street`, `number`, `neighborhood`, `city`, `state`, `cnpj` |
-| **FINANCING_BANKS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT) | `tenant_id`, `store_id`, `name`, `display_order` |
+| **STORES** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT). Possui `UNIQUE (tenant_id, id)` (`tenant_stores_unique`) | `tenant_id`, `name`, `phone`, `zip_code`, `street`, `number`, `neighborhood`, `city`, `state`, `cnpj` |
+| **FINANCING_BANKS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `(tenant_id, store_id)` -> `STORES(tenant_id, id)` (ON DELETE RESTRICT) | `tenant_id`, `store_id`, `name`, `display_order` |
 | **BANK_RATES** | `id` (UUID) | `bank_id` -> `FINANCING_BANKS(id)` (ON DELETE CASCADE) | `bank_id`, `months_from`, `months_to`, `monthly_interest_rate` |
-| **USERS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT) | `tenant_id`, `name`, `email`, `password_hash`, `phone` |
+| **USERS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `(tenant_id, store_id)` -> `STORES(tenant_id, id)` (ON DELETE RESTRICT) | `tenant_id`, `name`, `email`, `password_hash`, `phone` |
 | **BRANDS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT) | `name` |
 | **MODELS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `brand_id` -> `BRANDS(id)` (ON DELETE RESTRICT) | `tenant_id`, `brand_id`, `name` |
 | **FEATURES** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT) | `name` |
-| **VEHICLE_FEATURES** | Composta (`vehicle_id`, `feature_id`) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE), `feature_id` -> `FEATURES(id)` (ON DELETE CASCADE) | Ambos compõem PK e são `NOT NULL` |
-| **PROMOTIONS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT) | `tenant_id`, `store_id`, `name`, `start_date`, `end_date` |
-| **VEHICLES** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT), `registered_by_user_id` -> `USERS(id)` (ON DELETE RESTRICT), `sold_by_user_id` -> `USERS(id)` (ON DELETE RESTRICT), `model_id` -> `MODELS(id)` (ON DELETE RESTRICT), `promotion_id` -> `PROMOTIONS(id)` (ON DELETE SET NULL) | `tenant_id`, `store_id`, `registered_by_user_id`, `model_id`, `title`, `description`, `sale_price`, `manufacture_year`, `model_year`, `mileage`, `transmission`, `color`, `category`, `fuel_type`, `steering`, `doors`, `full_license_plate`, `plate_last_digit` |
+| **VEHICLE_FEATURES** | Composta (`vehicle_id`, `feature_id`) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE), `feature_id` -> `FEATURES(id)` (ON DELETE RESTRICT) | Ambos compõem PK e são `NOT NULL` |
+| **PROMOTIONS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `(tenant_id, store_id)` -> `STORES(tenant_id, id)` (ON DELETE RESTRICT) | `tenant_id`, `store_id`, `name`, `start_date`, `end_date` |
+| **VEHICLES** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `(tenant_id, store_id)` -> `STORES(tenant_id, id)` (ON DELETE RESTRICT), `registered_by_user_id` -> `USERS(id)`, `sold_by_user_id` -> `USERS(id)`, `model_id` -> `MODELS(id)` (ON DELETE RESTRICT), `promotion_id` -> `PROMOTIONS(id)` (ON DELETE SET NULL) | `tenant_id`, `store_id`, `registered_by_user_id`, `model_id`, `title`, `description`, `sale_price`, `manufacture_year`, `model_year`, `mileage`, `transmission`, `color`, `category`, `fuel_type`, `steering`, `doors`, `full_license_plate`, `plate_last_digit` |
 | **VEHICLE_PHOTOS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE) | `vehicle_id`, `thumb_path`, `full_path` |
-| **TRADE_IN_PROPOSALS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT), `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE) | `tenant_id`, `store_id`, `vehicle_id`, `customer_name`, `customer_phone`, `vehicle_brand`, `vehicle_model`, `vehicle_year`, `vehicle_mileage`, `intended_value`, `notes` |
-| **LEAD_INTERESTS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `store_id` -> `STORES(id)` (ON DELETE RESTRICT), `vehicle_id` -> `VEHICLES(id)` (ON DELETE SET NULL), `brand_id` -> `BRANDS(id)` (ON DELETE RESTRICT), `model_id` -> `MODELS(id)` (ON DELETE RESTRICT) | `tenant_id`, `store_id`, `customer_name`, `customer_phone` |
+| **TRADE_IN_PROPOSALS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `(tenant_id, store_id)` -> `STORES(tenant_id, id)` (ON DELETE RESTRICT), `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE) | `tenant_id`, `store_id`, `vehicle_id`, `customer_name`, `customer_phone`, `vehicle_brand`, `vehicle_model`, `vehicle_year`, `vehicle_mileage`, `intended_value`, `notes` |
+| **LEAD_INTERESTS** | `id` (UUID) | `tenant_id` -> `TENANTS(id)` (ON DELETE RESTRICT), `(tenant_id, store_id)` -> `STORES(tenant_id, id)` (ON DELETE RESTRICT), `vehicle_id` -> `VEHICLES(id)` (ON DELETE SET NULL), `brand_id` -> `BRANDS(id)`, `model_id` -> `MODELS(id)` | `tenant_id`, `store_id`, `customer_name`, `customer_phone` |
 | **VEHICLE_METRICS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE) | `vehicle_id` |
-| **VEHICLE_AUDITS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE CASCADE), `user_id` -> `USERS(id)` (ON DELETE RESTRICT) | `vehicle_id`, `user_id` |
+| **VEHICLE_AUDITS** | `id` (UUID) | `vehicle_id` -> `VEHICLES(id)` (ON DELETE RESTRICT), `user_id` -> `USERS(id)` | `vehicle_id`, `user_id` |
 | **HERO_BANNER** | `id` (UUID) | `promotion_id` -> `PROMOTIONS(id)` (ON DELETE CASCADE) | `promotion_id`, `image_path`, `title`, `redirect_url`, `duration_seconds`, `display_order` |
 
 > **Observação — `LEAD_INTERESTS`:** o lead pode se originar de um veículo específico (`vehicle_id` preenchido, com `ON DELETE SET NULL`) ou de um alerta geral de procura (`vehicle_id` nulo). Por isso, os filtros `brand_id`, `model_id`, `min_year`, `max_year` e `max_price` são todos opcionais. O campo `status` controla o funil de atendimento (`PENDENTE`, `EM_ATENDIMENTO`, `CONVERTIDO`, `ARQUIVADO`) e `notes` armazena anotações livres do atendimento.
@@ -325,8 +327,8 @@ erDiagram
 | `idx_tenant_users_email` | `users` | `tenant_id, lower(email)` | UNIQUE parcial (`WHERE deleted_at IS NULL`) |
 | `idx_brand_tenant_global` | `brands` | `lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NULL AND deleted_at IS NULL`) |
 | `idx_brand_tenant_conditional` | `brands` | `tenant_id, lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NOT NULL AND deleted_at IS NULL`) |
-| `idx_features_tenant_global` | `features` | `lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NULL`) |
-| `idx_features_tenant_conditional` | `features` | `tenant_id, lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NOT NULL`) |
+| `idx_features_tenant_global` | `features` | `lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NULL AND deleted_at IS NULL`) |
+| `idx_features_tenant_conditional` | `features` | `tenant_id, lower(name)` | UNIQUE parcial (`WHERE tenant_id IS NOT NULL AND deleted_at IS NULL`) |
 | `idx_tenant_brand_models` | `models` | `tenant_id, brand_id` | Performance parcial (`WHERE deleted_at IS NULL`) |
 | `idx_tenant_brand` | `models` | `tenant_id, brand_id, lower(name)` | UNIQUE parcial (`WHERE deleted_at IS NULL`) |
 | `idx_tenant_store_financing_banks` | `financing_banks` | `tenant_id, store_id` | Performance composto |
@@ -339,3 +341,19 @@ erDiagram
 | `idx_vehicles_category` | `vehicles` | `category` | Performance parcial (`WHERE deleted_at IS NULL`) |
 | `idx_vehicles_sale_price` | `vehicles` | `sale_price` | Performance parcial (`WHERE deleted_at IS NULL`) |
 | `idx_vehicles_created_at` | `vehicles` | `created_at` | Performance parcial (`WHERE deleted_at IS NULL`) |
+
+---
+
+## 5. Constraints Especiais, Triggers e Evoluções Planejadas
+
+### Implementados em `schema.sql`
+- **Isolamento Composto por Empresa e Filial (`tenant_stores_unique`)**: `stores` define `UNIQUE (tenant_id, id)` e todas as tabelas vinculadas a loja (`users`, `promotions`, `financing_banks`, `vehicles`, `trade_in_proposals`, `lead_interests`) usam chave estrangeira composta `(tenant_id, store_id)`, impedindo no próprio PostgreSQL o vínculo de registro a uma filial de outro tenant.
+- **Trigger `update_date_trigger` (`vehicles`)**: Executa `BEFORE UPDATE ON vehicles` chamando `update_date()` para atualizar `NEW.updated_at = now()`.
+- **Constraint `check_plate_last_digit` (`vehicles`)**: Garante consistência física no banco (`plate_last_digit = CAST(RIGHT(full_license_plate, 1) AS INTEGER)`).
+- **Unicidade Diária de Métricas (`uq_vehicle_metrics_date`)**: `UNIQUE (vehicle_id, recorded_date)` em `vehicle_metrics` para suportar upsert diário.
+
+### Planejados no Roadmap de Segurança (`Docs/roadmaps/roadmap-seguranca.md`)
+- **Menor Privilégio (`db/security/01_grants.sql`)**: Role de aplicação `garagem_app` sem `SUPERUSER`, sem `BYPASSRLS`, sem DDL/`TRUNCATE` e sem `DELETE` em `tenants`.
+- **Funções de Sistema (`db/security/02_system_functions.sql`)**: Role `garagem_system` (`NOLOGIN`) dona das funções `SECURITY DEFINER` para login multi-tenant, resolução pública de contexto e incremento de views em lote.
+- **Row Level Security (`db/security/03_rls.sql`)**: Habilitação de RLS em 100% das tabelas públicas usando `app_current_tenant_id()` via `set_config(..., true)` local à transação.
+- **Colunas Futuras**: `users.token_version` (revogação imediata de JWT) e `consent_at` / `consent_version` em `lead_interests` e `trade_in_proposals` (LGPD).

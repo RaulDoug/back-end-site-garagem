@@ -14,12 +14,16 @@ O **SiteGaragem** é uma solução completa para lojas e concessionárias de com
 
 ### 2. Perfis de Usuários e Controle de Acesso (RBAC)
 
-| Perfil | Identificador | Responsabilidades e Permissões |
+O controle de acesso opera em arquitetura **Multi-Tenant** (`tenant_id` obrigatório por empresa) e **Multi-Store** (`store_id` opcional para restringir operadores a uma filial específica):
+
+| Perfil | Identificador (`users_roles_types`) | Responsabilidades e Permissões |
 | :--- | :--- | :--- |
-| **Administrador** | `ADMIN` | Gestão de colaboradores, cadastro de bancos parceiros e faixas de juros (`bank_rates`), parametrização da loja, relatórios contábeis de lucratividade/comissões, expurgo físico de mídias e auditoria global. |
-| **Vendedor** | `SELLER` | Cadastro guiado de veículos (próprios/consignados), ordenação da galeria de fotos, negociações com reserva, fechamento de vendas e atendimento de propostas de troca e leads multicanal. |
-| **Espectador** | `VIEWER` | Consulta interna somente leitura ao catálogo de estoque e relatórios consolidados de métricas. |
-| **Cliente / Visitante** | `PUBLIC` | Consulta ao estoque ativo, aplicação de filtros, comparação de veículos, simulação de parcelamento por faixa e banco, envio de proposta de troca e solicitação de contato com seleção de canal e turno preferencial. |
+| **Administrador** | `ADMIN` | Gestão de dados da empresa (`/api/tenants/me`), filiais (`/api/stores`), colaboradores (`/api/users`), exclusão lógica (`soft delete`) de veículos/marcas/modelos, cadastro de bancos/taxas (`bank_rates`), relatórios e auditoria. |
+| **Vendedor** | `VENDEDOR` | Cadastro e edição de veículos (próprios/consignados), gestão de galeria de fotos e laudo cautelar, negociações/reservas, fechamento de vendas e atendimento de leads e propostas de troca (respeitando restrição de filial se `store_id != null`). |
+| **Visualizador** | `VISUALIZADOR` | Consulta interna somente leitura ao catálogo de estoque administrativo (`GET /api/vehicles/admin*`) com dados financeiros e placa completa ocultos (`RN003`), além de relatórios consolidados. |
+| **Cliente / Visitante** | `PUBLICO` | Acesso à vitrine pública isolada por `resolvePublicTenantContext` (`x-tenant-id`/`x-store-id`): consulta de estoque ativo, comparação de veículos, dados públicos da loja, simulação de financiamento e envio de leads/propostas. |
+
+> **Provisionamento SaaS (`POST /api/tenants/onboard`)**: A criação de novas empresas clientes (Tenant + Loja Matriz + primeiro `ADMIN`) é protegida pela chave de provisionamento `ONBOARDING_SECRET` (`x-onboarding-secret`).
 
 ---
 
@@ -52,17 +56,17 @@ flowchart TD
 ```
 
 #### UC01: Consultar e Filtrar Catálogo de Veículos
-- **Ator**: Cliente (`PUBLIC`).
-- **Pré-condição**: Veículo com status `ATIVO` ou `RESERVADO`.
+- **Ator**: Cliente (`PUBLICO`).
+- **Pré-condição**: Veículo com status `ATIVO` ou `RESERVADO` pertencente ao tenant/loja resolvido por `resolvePublicTenantContext`.
 - **Fluxo Principal**:
-  1. O cliente visualiza a vitrine paginada (12, 24, 36 ou 48 itens).
-  2. Aplica filtros combinados (categoria, marca, modelo dependente, combustível flex, faixa de preço, câmbio, opcionais).
+  1. O cliente visualiza a vitrine paginada (`12`, `24`, `36` ou `48` itens).
+  2. Aplica filtros combinados (categoria, marca, modelo dependente, combustível flex, faixa de preço, câmbio, opcionais, final de placa).
   3. A listagem atualiza os cards sem recarga total da tela.
   4. O cliente abre os detalhes com fotos, laudo cautelar aprovado em PDF, vídeo integrado e especificações.
-- **Regras**: Placa mascarada exibindo apenas o dígito final para fins de rodízio (LGPD).
+- **Regras**: Placa mascarada exibindo apenas `plate_last_digit` para fins de rodízio (LGPD).
 
 #### UC03: Simulação de Financiamento com Faixas de Prazos e Bancos
-- **Ator**: Cliente (`PUBLIC`).
+- **Ator**: Cliente (`PUBLICO`).
 - **Fluxo Principal**:
   1. Na página de detalhes do veículo, o cliente visualiza o simulador de parcelamento.
   2. Escolhe o banco parceiro desejado entre os ativos (ex: Santander, BV, Itaú, Bradesco, PAN).
@@ -72,30 +76,30 @@ flowchart TD
   6. Ao clicar em "Simular pelo WhatsApp", a mensagem é montada com o banco selecionado, entrada, parcelas calculadas e identificador do anúncio.
 
 #### UC05: Captação de Lead e Interesse com Canal e Turno Preferencial
-- **Atores**: Cliente (`PUBLIC`) e Vendedor (`SELLER`).
+- **Atores**: Cliente (`PUBLICO`) e Vendedor (`VENDEDOR`).
 - **Fluxo Principal**:
-  1. Ao demonstrar interesse em um veículo do anúncio, preencher alerta de procura ou enviar avaliação de troca, o cliente seleciona o meio de contato de sua preferência (`WHATSAPP`, `LIGACAO_TELEFONICA`, `EMAIL`) e o turno (`MANHA`, `TARDE`, `NOITE`).
+  1. Ao demonstrar interesse em um veículo do anúncio, preencher alerta de procura ou enviar avaliação de troca, o cliente seleciona o meio de contato de sua preferência (`WHATSAPP`, `LIGACAO`, `EMAIL`) e o turno (`MANHA`, `TARDE`, `NOITE`).
   2. O lead é catalogado no CRM interno (`lead_interests` ou `trade_in_proposals`) com os atributos selecionados e vínculo opcional ao veículo de interesse.
   3. No painel operacional (`UC08`), o vendedor visualiza a fila de leads e aciona o cliente pelo canal e turno escolhidos, conduzindo a negociação ou combinando o atendimento presencial diretamente.
 
 #### UC06: Cadastro Guiado de Veículo (Estoque Próprio vs. Consignado)
-- **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
+- **Ator**: Vendedor (`VENDEDOR`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. O operador escolhe o tipo de anúncio: `PROPRIO` ou `CONSIGNADO`.
   2. Se `PROPRIO`: informa `purchase_price` e `sale_price` para apuração direta de lucro da loja.
-  3. Se `CONSIGNADO`: preenche os dados do proprietário (`owner_name`, `owner_contact`), o `owner_price` (valor líquido acordado com o dono) e a `store_commission_rate` (percentual ou valor fixo de corretagem).
-  4. Preenche características técnicas e descrição detalhada (incluindo eventuais manutenções e revisões realizadas no texto descritivo). Inserção inline imediata de novas marcas, modelos ou opcionais caso não existam.
+  3. Se `CONSIGNADO`: preenche os dados do proprietário (`owner_name`, `owner_contact`), o `owner_price` (valor líquido acordado com o dono) e a `store_commission_rate` (percentual de corretagem).
+  4. Preenche características técnicas e descrição detalhada. Caso necessário, realiza inserção inline de novas marcas, modelos ou opcionais no catálogo do tenant.
   5. Realiza o upload das imagens e laudo cautelar em PDF.
 
 #### UC07: Ordenação Manual da Galeria via Drag & Drop
-- **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
+- **Ator**: Vendedor (`VENDEDOR`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. Na tela de fotos do anúncio, o operador reordena as miniaturas arrastando e soltando (*drag-and-drop*).
-  2. O primeiro item da lista ordenada (índice 0) é automaticamente assumido como foto de capa principal (`principal = true`).
-  3. O painel despacha requisição `PATCH /anuncios/:id/fotos/reordenar` com o array de UUIDs ordenados, atualizando a ordem de exibição pública instantaneamente.
+  2. O primeiro item da lista ordenada (índice 0) é automaticamente assumido como foto de capa principal (`is_primary = true`).
+  3. O painel despacha requisição `PATCH /api/vehicles/:id/photos/reorder` com o array de UUIDs ordenados, atualizando a ordem de exibição pública em transação atômica.
 
 #### UC09: Fechamento de Venda, Lucratividade e Comissões
-- **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
+- **Ator**: Vendedor (`VENDEDOR`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. O vendedor confirma a venda e altera o status para `VENDIDO`.
   2. Informa dados do comprador e confirma se o lead foi originado pelo site.
@@ -104,7 +108,7 @@ flowchart TD
   5. Dispara rotina de retenção histórica e agenda expurgo dos arquivos físicos em 7 dias.
 
 #### UC10: Emissão de Cartaz de Showroom para Pátio Físico
-- **Ator**: Vendedor (`SELLER`) ou Administrador (`ADMIN`).
+- **Ator**: Vendedor (`VENDEDOR`) ou Administrador (`ADMIN`).
 - **Fluxo Principal**:
   1. No painel de estoque, o operador aciona "Imprimir Cartaz de Showroom".
   2. A API gera PDF em folha A4 com logo, especificações técnicas, preço de vitrine e QR Code dinâmico para a página do anúncio.
@@ -146,16 +150,16 @@ flowchart TD
    Filtros por "Gasolina" ou "Álcool" incluem obrigatoriamente veículos cadastrados como "Flex".
 2. **[RN002] Visibilidade Pública Estrita**:
    Apenas anúncios `ATIVO` e `RESERVADO` aparecem na vitrine. Anúncios em reserva exibem tarja visual de bloqueio.
-3. **[RN003] Mascaramento de Identificadores (LGPD)**:
-   A placa completa e dados do proprietário são restritos a `ADMIN` e `SELLER`. Na vitrine pública, apenas o `final_placa` é exposto.
+3. **[RN003] Mascaramento de Identificadores e Dados Sensíveis (LGPD)**:
+   `full_license_plate`, `purchase_price`, `owner_price`, `owner_name`, `owner_contact` e `store_commission_rate` são restritos a `ADMIN` e `VENDEDOR`. Na vitrine pública (`PUBLICO`) e para `VISUALIZADOR`, apenas `plate_last_digit` e `sale_price` são expostos.
 4. **[RN004] Expiração Automática de Reservas e Negociações**:
-   Status `RESERVADO` ou `EM_NEGOCIACAO` possui `data_limite_reserva` (padrão de até 7 dias). Após expiração sem venda, o status retorna automaticamente para `ATIVO`.
-5. **[RN005] Política de Purga de Mídias e Retenção Histórica**:
-   Registros e métricas de vendas são mantidos permanentemente no banco. Imagens e laudos de veículos vendidos são expurgados fisicamente do disco após 7 dias, ou imediatamente em caso de exclusão manual (`EXCLUIDO`).
+   Status `RESERVADO` ou `EM_NEGOCIACAO` possui `reservation_expires_at` (padrão de até 7 dias). Após expiração sem venda, o status retorna automaticamente para `ATIVO`.
+5. **[RN005] Política de Purga de Mídias, Retenção Histórica e Anonimização (LGPD)**:
+   Registros e métricas de vendas são mantidos permanentemente no banco. Imagens e laudos de veículos vendidos serão expurgados do storage (R2/disco) após 7 dias, ou imediatamente em caso de exclusão manual. O roadmap de segurança prevê ainda endpoints dedicados de anonimização (`POST /api/vehicles/:id/anonymize` e `POST /api/users/:id/anonymize`).
 6. **[RN006] Otimização Mandatória de Imagens (Sharp)**:
-   Uploads de fotos são convertidos para WebP (qualidade 80%) e subdivididos em `thumb` (400x300px) e `full` (1280x960px). Originais brutos são descartados.
+   Uploads de fotos são convertidos para WebP (qualidade 80%) e subdivididos em `thumb` (400x300px) e `full` (1280x960px). Originais temporários são descartados no `finally`.
 7. **[RN007] Anti-fraude em Métricas de Visualização**:
-   Acessos do mesmo par (IP + User-Agent) em janela inferior a 30 minutos contam como apenas 1 visualização no banco.
+   Acessos do mesmo par (`IP + User-Agent`) em janela inferior a 30 minutos contam como apenas 1 visualização (`viewTracker`), com consolidação em lote no banco a cada 60 segundos (`incrementBatchViews`).
 8. **[RN008] Regra de Foto de Capa (Drag & Drop)**:
    A foto posicionada no índice 0 da galeria é automaticamente persistida com `is_primary = true`, e as demais como `false`.
 9. **[RN009] Cálculo de Margem por Tipo de Venda**:
@@ -170,9 +174,25 @@ flowchart TD
 
 ### 6. Modelo de Entidades e Relacionamentos (MER)
 
+> Para o dicionário de dados completo com nulabilidade, índices parciais, chaves estrangeiras compostas `(tenant_id, store_id)`, triggers e constraints do PostgreSQL, consulte [Docs/database_schema.md](./database_schema.md).
+
 ```mermaid
 erDiagram
+    TENANTS ||--|{ STORES : "owns"
+    TENANTS ||--o{ USERS : "has"
+    TENANTS ||--o{ BRANDS : "has"
+    TENANTS ||--o{ MODELS : "has"
+    TENANTS ||--o{ FEATURES : "has"
+    TENANTS ||--o{ PROMOTIONS : "has"
+    TENANTS ||--o{ VEHICLES : "owns"
+    TENANTS ||--o{ TRADE_IN_PROPOSALS : "receives"
+    TENANTS ||--o{ LEAD_INTERESTS : "receives"
+    TENANTS ||--o{ FINANCING_BANKS : "configures"
+    STORES ||--o{ USERS : "employs"
+    STORES ||--o{ PROMOTIONS : "runs"
     STORES ||--o{ VEHICLES : "belongs_to"
+    STORES ||--o{ TRADE_IN_PROPOSALS : "receives"
+    STORES ||--o{ LEAD_INTERESTS : "receives"
     STORES ||--o{ FINANCING_BANKS : "works_with"
     FINANCING_BANKS ||--|{ BANK_RATES : "has_rates"
     USERS ||--o{ VEHICLES : "registers"
@@ -181,27 +201,47 @@ erDiagram
     BRANDS ||--|{ MODELS : "has"
     MODELS ||--o{ VEHICLES : "specifies"
     PROMOTIONS ||--o{ VEHICLES : "applies_to"
+    PROMOTIONS ||--o{ HERO_BANNER : "targets"
     VEHICLES ||--|{ VEHICLE_PHOTOS : "contains"
     VEHICLES ||--o{ VEHICLE_FEATURES : "has"
     FEATURES ||--o{ VEHICLE_FEATURES : "composes"
     VEHICLES ||--o{ TRADE_IN_PROPOSALS : "receives"
-    VEHICLES ||--o{ LEAD_INTERESTS : "generates"
     VEHICLES ||--o{ VEHICLE_METRICS : "accumulates"
-    HERO_BANNERS }o--o| PROMOTIONS : "targets"
+    VEHICLES ||--o{ VEHICLE_AUDITS : "logs"
+    VEHICLES ||--o{ LEAD_INTERESTS : "receives"
+    LEAD_INTERESTS }o--o| BRANDS : "wants"
     LEAD_INTERESTS }o--o| MODELS : "wants"
 
-    STORES {
+    TENANTS {
         uuid id PK
-        string name
-        string phone
-        string address
+        string corporate_name
+        string trade_name
         string cnpj
         boolean is_active
         timestamp created_at
+        timestamp deleted_at
+    }
+
+    STORES {
+        uuid id PK
+        uuid tenant_id FK
+        string name
+        string phone
+        string zip_code
+        string street
+        string number
+        string neighborhood
+        string city
+        string state
+        string cnpj
+        boolean is_active
+        timestamp created_at
+        timestamp deleted_at
     }
 
     FINANCING_BANKS {
         uuid id PK
+        uuid tenant_id FK
         uuid store_id FK
         string name
         int display_order
@@ -220,39 +260,55 @@ erDiagram
 
     USERS {
         uuid id PK
+        uuid tenant_id FK
+        uuid store_id FK
         string name
         string email
         string password_hash
         string phone
         string role
-        decimal commission_rate
+        decimal commission_rates
         boolean is_active
         timestamp created_at
+        timestamp deleted_at
     }
 
     BRANDS {
-        int id PK
+        uuid id PK
+        uuid tenant_id FK
         string name
+        boolean is_active
+        timestamp created_at
+        timestamp deleted_at
     }
 
     MODELS {
-        int id PK
-        int brand_id FK
+        uuid id PK
+        uuid tenant_id FK
+        uuid brand_id FK
         string name
+        boolean is_active
+        timestamp created_at
+        timestamp deleted_at
     }
 
     FEATURES {
-        int id PK
+        uuid id PK
+        uuid tenant_id FK
         string name
+        boolean is_active
+        timestamp deleted_at
     }
 
     VEHICLE_FEATURES {
         uuid vehicle_id PK,FK
-        int feature_id PK,FK
+        uuid feature_id PK,FK
     }
 
     PROMOTIONS {
         uuid id PK
+        uuid tenant_id FK
+        uuid store_id FK
         string name
         string description
         date start_date
@@ -262,10 +318,11 @@ erDiagram
 
     VEHICLES {
         uuid id PK
+        uuid tenant_id FK
         uuid store_id FK
         uuid registered_by_user_id FK
         uuid sold_by_user_id FK
-        int model_id FK
+        uuid model_id FK
         uuid promotion_id FK
         string sale_type
         string title
@@ -285,7 +342,7 @@ erDiagram
         string transmission
         string color
         string category
-        string horsepower
+        int horsepower
         string fuel_type
         string steering
         int doors
@@ -302,6 +359,7 @@ erDiagram
         boolean website_lead_origin
         timestamp created_at
         timestamp updated_at
+        timestamp deleted_at
     }
 
     VEHICLE_PHOTOS {
@@ -316,6 +374,8 @@ erDiagram
 
     TRADE_IN_PROPOSALS {
         uuid id PK
+        uuid tenant_id FK
+        uuid store_id FK
         uuid vehicle_id FK
         string customer_name
         string customer_phone
@@ -333,13 +393,15 @@ erDiagram
 
     LEAD_INTERESTS {
         uuid id PK
+        uuid tenant_id FK
+        uuid store_id FK
         uuid vehicle_id FK
         string customer_name
         string customer_phone
         string preferred_channel
         string preferred_shift
-        int brand_id FK
-        int model_id FK
+        uuid brand_id FK
+        uuid model_id FK
         int min_year
         int max_year
         decimal max_price
@@ -362,11 +424,11 @@ erDiagram
         uuid user_id FK
         timestamp changed_at
         string changed_field
-        string old_value
-        string new_value
+        text old_value
+        text new_value
     }
 
-    HERO_BANNERS {
+    HERO_BANNER {
         uuid id PK
         uuid promotion_id FK
         string image_path
@@ -380,21 +442,29 @@ erDiagram
 
 ---
 
-### 7. Arquitetura Técnica
+### 7. Arquitetura Técnica e Documentação Relacionada
 
-- **Back-end (API REST)**: Node.js com TypeScript em arquitetura limpa (Controllers, Services, Repositories).
-- **Banco de Dados**: PostgreSQL com identificadores UUIDv4 e índices em `status`, `model_id`, `category`, `sale_price`, `model_year`, `sale_type` e `created_at`.
-- **Tabela Associativa N:N**: `vehicle_features` indexada por chave composta (`vehicle_id`, `feature_id`) para consultas de alta performance.
-- **Processamento de Mídias**: Sharp para conversão WebP, geração de `thumb` (400x300) e `full` (1280x960), com suporte a reordenação de índices e descarte de brutos.
-- **Documentos e PDFs**: Geração de Cartazes de Showroom em folha A4 com QR Code dinâmico via `pdfkit` / `puppeteer`.
-- **Front-end**: Framework SPA/SSR (Next.js) para renderização prévia de metatags OpenGraph e simulador financeiro interativo por faixas de prazo.
+- **Back-end (API REST)**: Node.js com TypeScript, Express 5 (`async` error propagation nativo), arquitetura em camadas (Routes, Middlewares, Controllers, Services, Repositories) com SQL puro parametrizado via `node-postgres` (`pg`).
+- **Validação & Segurança Aplicada**: Schemas `zod`, JWT `HS256` (`1d`) com validação runtime de payload e consulta unificada no banco, hash `bcrypt`, `express-rate-limit` (`loginLimit` com `skipSuccessfulRequests: true`, `registerLimit`) integrado a `TRUST_PROXY_HOPS`, provisionamento via `ONBOARDING_SECRET` (`crypto.timingSafeEqual`).
+- **Banco de Dados**: PostgreSQL com UUIDv4 (`pgcrypto`), isolamento Multi-Tenant e Multi-Store (chaves compostas `(tenant_id, store_id)` e índices parciais `WHERE deleted_at IS NULL`).
+- **Processamento de Mídias**: Multer (`diskStorage` temporário com limpeza no `finally`) + Sharp (WebP 80%, `thumb` 400x300 e `full` 1280x960) + contrato `StorageProvider` (`LocalStorageProvider`, preparado para `R2StorageProvider`).
+- **Documentação Interativa**: Swagger UI (`/api-docs`) e OpenAPI 3.1 JSON (`/api-docs.json`) servidos em desenvolvimento/teste a partir de [Docs/openapi.yaml](./openapi.yaml).
+- **Testes**: Vitest + Supertest (testes unitários, integração com PostgreSQL `_test` e E2E).
+- **Documentos Complementares**:
+  - [Docs/api-routes.md](./api-routes.md) — Contrato completo de endpoints.
+  - [Docs/services-repositories.md](./services-repositories.md) — Regras de negócio e persistência.
+  - [Docs/middlewares-and-utils.md](./middlewares-and-utils.md) — Middlewares e utilitários.
+  - [Docs/database_schema.md](./database_schema.md) — Dicionário físico e ERD.
+  - [Docs/arquitetura-ecossistema.md](./arquitetura-ecossistema.md) — Visão do ecossistema SaaS + Vitrine Whitelabel.
+  - [Docs/roadmaps/roadmap.md](./roadmaps/roadmap.md) — Roadmap geral de desenvolvimento.
+  - [Docs/roadmaps/roadmap-seguranca.md](./roadmaps/roadmap-seguranca.md) — Plano TDD de endurecimento de segurança e LGPD (`S0–S10`).
+  - [Docs/roadmaps/roadmap-revisao-socratica-fase-5.md](./roadmaps/roadmap-revisao-socratica-fase-5.md) — Guia de revisão manual da Fase 5.
 
 ---
 
 ### 8. Roadmap de Implementações Futuras
 
-1. **Integração com Marketplaces**: Exportação de estoque para OLX, Mercado Livre, Webmotors e Facebook Marketplace.
-2. **Integração Bancária Automática**: Consulta de crédito e esteira de aprovação com instituições financeiras diretamente pela API.
-3. **Distribuição Automatizada de Leads (Round-Robin)**: Rotação equilibrada de leads entre os vendedores de plantão.
-4. **Módulo Fiscal**: Emissão de notas fiscais eletrônicas de entrada, saída e serviço.
-5. **Multi-Filiais**: Gestão multi-lojas e transferência de veículos entre diferentes pátios físicos.
+1. **Segurança & Defesa em Profundidade (`S0–S10`)**: Menor privilégio no banco (`garagem_app`), `AsyncLocalStorage` + `db.ts`, funções `SECURITY DEFINER`, RLS em 100% das tabelas, `helmet`, CORS allowlist, rota dedicada para laudos, magic bytes, validação de ambiente/TLS no boot e anonimização LGPD.
+2. **Armazenamento em Nuvem (Cloudflare R2)**: Buckets público/privado segregados e Presigned URLs temporárias para laudos.
+3. **Módulo Financeiro, CRM e Vendas**: Bancos e matriz de taxas (`UC11`/`UC03`), leads e trocas com consentimento LGPD (`UC04`/`UC05`/`UC08`), reservas/vendas/comissões (`UC09`), auditoria sem vazamento de PII, promoções/banners (`UC13`), cartaz A4 (`UC10`) e relatórios (`UC14`).
+4. **Expansões Futuras**: Integração com Marketplaces (OLX, Mercado Livre, Webmotors), esteira bancária automática, distribuição Round-Robin de leads e módulo fiscal.

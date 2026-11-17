@@ -18,12 +18,8 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
       "message": "Mensagem descritiva do erro"
     }
     ```
-  - **`ZodError`:** Disparado se uma exceção de validação escapar sem interceptor local. Responde com status `400 Bad Request`:
-    ```json
-    {
-      "message": "[{\"code\":\"...\",\"message\":\"...\"}]"
-    }
-    ```
+  - **`MulterError`:** Erros de upload que escaparem dos wrappers de Multer respondem com status `400 Bad Request` e `{ "message": error.message }`.
+  - **`ZodError`:** Disparado se uma exceção de validação escapar sem interceptor local. Responde com status `400 Bad Request` com `{ "message": error.message }`.
   - **Erros Nativos do PostgreSQL (pgCode):**
     - **`23505` (Unique Violation):** Responde com status `409 Conflict`:
       ```json
@@ -43,6 +39,7 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
       "message": "Erro interno do servidor"
     }
     ```
+  - **Evolução Planejada (`roadmap-seguranca.md` S4.7 / S6.5):** Tratamento de `MissingTenantContextError` (`500` sem detalhes), código Postgres `42501` (`403` `'Operação não permitida.'`) e logs JSON estruturados sem PII via `logError`.
 
 ---
 
@@ -336,22 +333,26 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `buildUpdateQuery(tableName: string, data: Record<string, unknown>, id: string, options?: { softDelete?: boolean }): { query: string; values: unknown[] }`
+### `buildUpdateQuery(tableName: string, data: Record<string, unknown>, id: string, options?: { softDelete?: boolean; tenantId?: string }): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Constrói uma query SQL `UPDATE` parametrizada vinculando colunas e inserindo o identificador `id` no último parâmetro posicional. Valida identificadores com `assertValidIdentifier` e, quando `options?.softDelete !== false` (padrão), anexa a cláusula `AND deleted_at IS NULL` para impedir modificações acidentais em registros inativados logicamente.
+- **Descrição:** Constrói uma query SQL `UPDATE` parametrizada vinculando colunas mutáveis e aplicando `id` e (quando informado) `tenant_id` no `WHERE`. Bloqueia explicitamente qualquer mutação nas colunas imutáveis (`id`, `tenant_id`, `created_at`) e ignora valores `undefined` (lançando `BadRequestError('Nenhum campo válido informado para atualização')` se nada restar). Valida identificadores com `assertValidIdentifier` e, quando `options?.softDelete !== false` (padrão), anexa `AND deleted_at IS NULL`.
 - **Assinatura & Parâmetros:**
   - `tableName` (`string`): Nome da tabela no PostgreSQL.
-  - `data` (`Record<string, unknown>`): Colunas a serem modificadas.
+  - `data` (`Record<string, unknown>`): Colunas a serem modificadas (campos em `IMMUTABLE_UPDATE_COLUMNS` são filtrados).
   - `id` (`string`): Identificador do registro.
-  - `options` (`{ softDelete?: boolean }`, opcional): Flag indicando se a tabela opera com soft-delete (padrão `true`).
+  - `options` (`{ softDelete?: boolean; tenantId?: string }`, opcional): Flag de soft-delete (padrão `true`) e UUID do tenant para isolamento no `WHERE`.
 - **Retorno:** `{ query: string; values: unknown[] }`.
 - **Exemplo Real (Extraído dos testes do Vitest):**
-  - Entrada: `buildUpdateQuery("brands", { name: "Toyota do Brasil" }, "b1a2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d")`
+  - Entrada: `buildUpdateQuery("brands", { name: "Toyota do Brasil", tenant_id: "tentativa-invasao" }, "b1a2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d", { tenantId: "11111111-1111-4111-8111-111111111111" })`
   - Saída:
     ```javascript
     {
-      query: "UPDATE brands SET name = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING *;",
-      values: ["Toyota do Brasil", "b1a2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"]
+      query: "UPDATE brands SET name = $1 WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL RETURNING *;",
+      values: [
+        "Toyota do Brasil",
+        "b1a2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+        "11111111-1111-4111-8111-111111111111"
+      ]
     }
     ```
 
@@ -383,15 +384,15 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `sanitizeVehicleForRole<T extends Record<string, unknown>>(vehicle: T, role?: string): Record<string, unknown>`
+### `sanitizeVehicleForRole<T extends object>(vehicle: T | T[], role?: string): T | SanitizedVehicle<T> | T[] | SanitizedVehicle<T>[]`
 - **Arquivo:** `src/utils/vehicle-sanitizer.util.ts`
-- **Descrição:** Remove dados sensíveis ou confidenciais de veículos para conformidade com a LGPD e privacidade comercial (RN003).
+- **Descrição:** Remove dados sensíveis ou confidenciais de um veículo ou array de veículos para conformidade com a LGPD e privacidade comercial (RN003). A verificação de role é case-insensitive (`role?.toUpperCase()`).
 - **Assinatura & Parâmetros:**
-  - `vehicle` (`T`): Objeto do veículo recuperado do banco.
-  - `role` (`string`, opcional): Perfil do usuário solicitante (`'ADMIN'`, `'VENDEDOR'`, `'VISUALIZADOR'`, `'PUBLICO'` ou deslogado).
-- **Retorno:** Cópia higienizada do veículo.
+  - `vehicle` (`T | T[]`): Objeto ou lista de veículos recuperados do banco.
+  - `role` (`string`, opcional): Perfil do usuário solicitante (`'ADMIN'`, `'VENDEDOR'`, `'VISUALIZADOR'`, `'PUBLICO'` ou indefinido).
+- **Retorno:** Cópia higienizada do veículo (ou array de veículos).
   - Perfis `'ADMIN'` e `'VENDEDOR'`: Retorna o objeto integral (inclui preços de compra e comissões).
-  - Perfis `'VISUALIZADOR'`, `'PUBLICO'` ou indefinido: Deleta as propriedades:
+  - Perfis `'VISUALIZADOR'`, `'PUBLICO'` ou indefinido: Remove as propriedades:
     - `full_license_plate` (preserva apenas `plate_last_digit`)
     - `purchase_price`
     - `owner_price`
@@ -421,43 +422,57 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `viewTracker.shouldIncrement(vehicleId: string, ip: string, userAgent: string): boolean`
+### `viewTracker` (`ViewTracker`)
 - **Arquivo:** `src/utils/view-tracker.util.ts`
-- **Descrição:** Valida em cache em memória com TTL de 30 minutos se uma visualização de veículo deve ser contabilizada, prevenindo fraudes de tráfego artificial (RN007).
-- **Assinatura & Parâmetros:**
-  - `vehicleId` (`string`): UUID do veículo visualizado.
-  - `ip` (`string`): Endereço IP do visitante.
-  - `userAgent` (`string`): Cabeçalho `User-Agent` do navegador.
-- **Retorno:** `boolean`:
-  - `true`: Visualização inédita dentro da janela de 30 minutos. Registra a chave no cache e permite o incremento.
-  - `false`: O mesmo IP e User-Agent já visualizaram este veículo há menos de 30 minutos. Bloqueia o incremento.
-- **Exemplo Real (Extraído de `vehicle.service.spec.ts`):**
-  - 1ª Chamada: `viewTracker.shouldIncrement("uuid-veiculo-1", "127.0.0.1", "Mozilla/5.0")` -> `true`
-  - 2ª Chamada imediata: `viewTracker.shouldIncrement("uuid-veiculo-1", "127.0.0.1", "Mozilla/5.0")` -> `false`
+- **Descrição:** Controla visualizações de veículos em memória com janela anti-fraude de 30 minutos por combinação `vehicleId + IP + User-Agent` (`RN007`) e acumula incrementos pendentes (`pendingViews`) para persistência em lote a cada 60 segundos pelo job em `src/server.ts` (`vehicleRepository.incrementBatchViews`). Realiza limpeza oportunista quando o cache ultrapassa 2.000 entradas.
+- **Métodos Públicos:**
+  - `shouldIncrement(vehicleId: string, ip: string, userAgent: string): boolean`: Verifica se a chave expirou/inexiste no cache de 30 minutos; se sim, registra novo TTL e retorna `true`.
+  - `trackView(vehicleId: string, ip: string, userAgent: string): boolean`: Chama `shouldIncrement`; se retornar `true`, soma `+1` em `pendingViews` para o `vehicleId`.
+  - `getPendingViews(vehicleId: string): number`: Retorna quantas visualizações pendentes de persistência existem no buffer para o veículo (usado na leitura em `VehicleService` para exibir o total atualizado em tempo real).
+  - `drainPending(): Map<string, number>`: Retorna uma cópia do mapa de visualizações pendentes e limpa `pendingViews` atomicamente para o flush no banco.
+  - `clear(): void`: Limpa cache TTL e buffer pendente (utilizado em testes).
 
 ---
 
 ### `uploadVehiclePhotos` e `uploadInspectionReport` (Middlewares de Upload)
 - **Arquivo:** `src/middlewares/upload.middleware.ts`
 - **Descrição:**
-  - `uploadVehiclePhotos`: Intercepta requisições `multipart/form-data` no campo `photos` permitindo até 15 imagens (`JPEG`, `PNG`, `WebP`) em memória (`multer.memoryStorage()`) com limite de 10MB por arquivo. Retorna `AppError(400)` se o arquivo for inválido ou exceder o limite.
-  - `uploadInspectionReport`: Intercepta requisições `multipart/form-data` no campo `report` permitindo arquivo único PDF (`application/pdf`) de até 20MB em memória.
+  - Configura `multer.diskStorage` gravando os arquivos temporariamente em `TEMP_DIR` (`uploads/vehicles/temp`) com nomes gerados via `crypto.randomUUID()` + extensão original.
+  - `uploadVehiclePhotos`: Intercepta requisições `multipart/form-data` no campo `photos` permitindo até 15 imagens (`image/jpeg`, `image/png`, `image/webp`) com limite de 10MB por arquivo. Converte `MulterError` (`LIMIT_FILE_SIZE`, `LIMIT_UNEXPECTED_FILE`) em `AppError(400)`.
+  - `uploadInspectionReport`: Intercepta requisições `multipart/form-data` no campo `report` permitindo arquivo único PDF (`application/pdf`) de até 20MB.
 - **Assinatura & Parâmetros:** Middlewares Express padronizados `(req: Request, res: Response, next: NextFunction): void`.
 
 ---
 
-### `processVehiclePhoto(buffer: Buffer, vehicleId: string, photoId: string): Promise<{ thumb_path: string, full_path: string }>`
+### `processVehiclePhoto`, `deletePhotoFiles` e `deleteReportFile`
 - **Arquivo:** `src/utils/image-processor.util.ts`
-- **Descrição:** Processa o buffer da imagem utilizando Sharp. Converte para WebP (quality 80) e gera miniatura (`thumb`, 400x300, `fit: cover`) e versão de alta resolução (`full`, 1280x960, `fit: inside`, `withoutEnlargement`). Salva os arquivos físicos em `uploads/vehicles/thumbs` e `uploads/vehicles/full`. Retorna os caminhos estáticos relativos.
-- **Assinatura & Parâmetros:**
-  - `buffer` (`Buffer`): Buffer binário da imagem enviada.
-  - `vehicleId` (`string`): Identificador do veículo.
-  - `photoId` (`string`): UUID gerado para a foto.
-- **Retorno:** `Promise<{ thumb_path: string, full_path: string }>`.
+- **Descrição:**
+  - Configura `sharp.cache(false)` para evitar locks de arquivo no Windows.
+  - `processVehiclePhoto(inputPath: string): Promise<{ thumbBuffer: Buffer; fullBuffer: Buffer }>`: Valida o arquivo temporário com Sharp (lançando `AppError(400, 'Formato de imagem inválido ou corrompido')` caso inválido) e gera em paralelo dois buffers em WebP (qualidade 80%): miniatura (`400x300`, `fit: 'cover'`) e alta resolução (`1280x960`, `fit: 'inside'`, `withoutEnlargement: true`). A gravação final é delegada ao `StorageProvider`.
+  - `deletePhotoFiles(thumbPath: string, fullPath: string): Promise<void>` e `deleteReportFile(reportPath: string): Promise<void>`: Removem com segurança arquivos físicos usando `toSafeAbsolutePath` (prevenção de path traversal) e ignorando `ENOENT`.
 
 ---
 
-### `deletePhotoFiles(thumbPath: string, fullPath: string): Promise<void>` e `deleteReportFile(reportPath: string): Promise<void>`
-- **Arquivo:** `src/utils/image-processor.util.ts`
-- **Descrição:** Remove com segurança do disco os arquivos físicos de fotos e laudo pericial PDF, prevenindo path traversal e ignorando graciosamente arquivos inexistentes (`ENOENT`).
+### `StorageProvider` e `LocalStorageProvider`
+- **Arquivo:** `src/utils/storage.util.ts`
+- **Descrição:** Abstração de armazenamento de mídias preparando a troca transparente entre disco local e Cloudflare R2 (Fase 6).
+- **Diretórios e Utilitários Exportados:**
+  - `THUMBS_DIR`, `FULL_DIR`, `REPORTS_DIR`, `TEMP_DIR`: subdiretórios sob `uploads/vehicles`.
+  - `ensureUploadDirs(): Promise<void>`: Cria os diretórios recursivamente de forma idempotente (chamada no boot em `src/server.ts` e no Multer).
+  - `toSafeAbsolutePath(relativePath: string): string`: Resolve caminho absoluto garantindo que esteja estritamente dentro da raiz `uploads/` (bloqueia path traversal com `AppError(400)`).
+  - `LocalStorageProvider`: Implementa `save(folder, filename, content)` (aceita `Buffer` ou caminho de arquivo temporário para `rename`), `delete(relativePath)` e `deleteTempFile(filePath)`.
+
+---
+
+## 3. Componentes Transversais Planejados (`Docs/roadmaps/roadmap-seguranca.md`)
+
+Os módulos abaixo **ainda não existem** no código atual e serão implementados nas subfases do roadmap de segurança:
+
+- **`src/config/request-context.ts` (S2.1):** Contexto por requisição via `AsyncLocalStorage` (`runWithTenant`, `getCurrentTenantId`).
+- **`src/config/db.ts` (S2.2–S2.3):** Wrapper fail-closed do pool com `set_config('app.current_tenant_id', $1, true)` local à transação e `callSystemFunction` com allowlist.
+- **`src/config/cors.ts` (S6.2):** Allowlist estrita via `CORS_ALLOWED_ORIGINS` (exigindo `https://` em produção) + `helmet` em `src/app.ts` (S6.1).
+- **`src/utils/logger.util.ts` (S6.5):** Logger JSON estruturado em uma linha (`logError`) sem vazar `detail` do Postgres ou dados pessoais.
+- **`src/utils/file-signature.util.ts` (S7.2):** Validação por assinatura binária (*magic bytes*) dos primeiros 12 bytes para JPEG, PNG, WebP e PDF.
+- **`src/utils/storage-key.util.ts` (S7.3):** Geração padronizada de chaves por tenant (`buildStorageKey`) e `R2StorageProvider` (S7.4 / Fase 6).
+- **`src/config/env.ts` & `src/config/least-privilege.ts` (S8.1–S8.3):** Validação Zod das variáveis de ambiente no boot e recusa de inicialização caso o banco conecte como usuário privilegiado ou dono das tabelas.
 
