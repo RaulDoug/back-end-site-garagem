@@ -426,8 +426,8 @@ describe('POST /api/users/register - validações e casos de borda', () => {
     });
   });
 
-  describe('rate limit de register', () => {
-    it('deve retornar 429 na sexta tentativa de registro do mesmo IP', async () => {
+  describe('desativação do rate limit de register', () => {
+    it('não deve retornar 429 após 6 tentativas de registro do mesmo IP (registerLimit desativado)', async () => {
       const ipFixo = '203.0.113.77';
       const respostas = [];
 
@@ -441,15 +441,10 @@ describe('POST /api/users/register - validações e casos de borda', () => {
         respostas.push(res);
       }
 
-      respostas.slice(0, 5).forEach((res) => {
+      respostas.forEach((res) => {
         expect(res.status).toBe(400);
+        expect(res.status).not.toBe(429);
         expect(res.body.status).toBe('fail');
-      });
-
-      expect(respostas[5].status).toBe(429);
-      expect(respostas[5].body).toEqual({
-        message:
-          'Muitas contas criadas a partir deste IP. Tente novamente em 1 hora.',
       });
     });
   });

@@ -191,7 +191,7 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 - **Arquivo:** `src/middlewares/auth.middleware.ts`
 - **Tipo:** Interceptor de Segurança / Proteção contra Força Bruta (`express-rate-limit`).
 - **Configuração:** Limite de 5 tentativas falhas a cada 15 minutos por IP, com `skipSuccessfulRequests: true` para que logins válidos (`2xx`) não consumam a cota do IP.
-- **Proxy Reverso (`TRUST_PROXY_HOPS`):** Em `src/app.ts`, `app.set('trust proxy', ...)` lê `process.env.TRUST_PROXY_HOPS` (padrão `1`), garantindo leitura correta do IP real do cliente em provedores como **Render**, **Northflank** e **Koyeb** (`1` hop direto no load balancer da PaaS, ou `2` se houver Cloudflare Proxy na frente).
+- **Proxy Reverso (`TRUST_PROXY_HOPS`):** Em `src/app.ts`, `app.set('trust proxy', ...)` lê `process.env.TRUST_PROXY_HOPS` (padrão `1`), garantindo leitura correta do IP real do cliente em provedores como **Render**, **Northflank** e **Koyeb** (`1` hop direto no load balancer da PaaS, ou `2` se houver Cloudflare Proxy na frente). **Atenção:** caso a aplicação rode exposta diretamente sem proxy reverso na frente, configure explicitamente `TRUST_PROXY_HOPS=0` para impedir bypass do `loginLimit` via spoofing do header `X-Forwarded-For`.
 - **Entradas Analisadas:** Endereço IP do cliente resolvido pelo `trust proxy`.
 - **Injeção no `Express.Request`:** Anexa headers padrão de rate-limit (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`).
 - **Tratamento de Erros e Interrupções:**
@@ -207,11 +207,11 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 ### `registerLimit`
 - **Arquivo:** `src/middlewares/auth.middleware.ts`
 - **Tipo:** Interceptor de Segurança / Rate Limit de Cadastros (`express-rate-limit`).
-- **Rotas Protegidas:** Aplicado em `POST /api/tenants/onboard` (junto a `authenticateOnboardingSecret`) e nas rotas de criação de conta/usuário para contenção de força bruta.
+- **Status Atual:** A função continua exportada em `src/middlewares/auth.middleware.ts` para eventual reativação futura, porém está atualmente **desativada nas rotas** (`POST /api/tenants/onboard` e `POST /api/users/register`).
 - **Entradas Analisadas:** Endereço IP do cliente.
 - **Injeção no `Express.Request`:** Headers padrão de rate-limit.
 - **Tratamento de Erros e Interrupções:**
-  - Se exceder 5 cadastros dentro da janela de 1 hora por IP: Retorna status `429 Too Many Requests`:
+  - Quando ativa, se exceder 5 cadastros dentro da janela de 1 hora por IP: Retorna status `429 Too Many Requests`:
     ```json
     {
       "message": "Muitas contas criadas a partir deste IP. Tente novamente em 1 hora."
@@ -223,10 +223,11 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 ### `authenticateOnboardingSecret`
 - **Arquivo:** `src/middlewares/auth.middleware.ts`
 - **Tipo:** Interceptor de Autenticação de Provisionamento SaaS (exclusivo para `POST /api/tenants/onboard`).
-- **Entradas Analisadas:** Header HTTP `x-onboarding-secret` comparado em tempo constante (`crypto.timingSafeEqual`, validando igualdade de `byteLength` antes da comparação) contra `process.env.ONBOARDING_SECRET`.
+- **Entradas Analisadas:** Header HTTP `x-onboarding-secret` comparado em tempo constante (`crypto.timingSafeEqual`, validando igualdade de `byteLength` antes da comparação) contra o retorno de `getOnboardingSecret()` (`process.env.ONBOARDING_SECRET?.trim()`).
+- **Validação no Boot (*Fail-Fast*):** Além da leitura em runtime via `getOnboardingSecret()`, a variável `ONBOARDING_SECRET` é validada no boot da aplicação em `src/server.ts` antes da conexão com o PostgreSQL.
 - **Injeção no `Express.Request`:** Nenhuma injeção.
 - **Tratamento de Erros e Interrupções:**
-  - **`process.env.ONBOARDING_SECRET` ausente ou vazia:** Encaminha `Error('Variável de ambiente ONBOARDING_SECRET não configurada.')` para `next(error)` (`500 Internal Server Error`).
+  - **`process.env.ONBOARDING_SECRET` ausente ou vazia:** `getOnboardingSecret()` lança `Error('Variável de ambiente ONBOARDING_SECRET não configurada.')`, encaminhado para `next(error)` (`500 Internal Server Error`).
   - **Header `x-onboarding-secret` ausente, vazio, array ou divergente:** Interrompe com status `401 Unauthorized`:
     ```json
     {

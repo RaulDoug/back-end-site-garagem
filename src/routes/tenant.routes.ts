@@ -3,7 +3,6 @@ import TenantController from '#controllers/tenant.controller.js';
 import {
   authenticateJWT,
   authenticateOnboardingSecret,
-  registerLimit,
 } from '#middlewares/auth.middleware.js';
 import { authorizeRoles } from '#middlewares/role.middleware.js';
 import { validate } from '#middlewares/validate.middleware.js';
@@ -14,7 +13,6 @@ const tenantController = new TenantController();
 
 router.post(
   '/onboard',
-  registerLimit,
   authenticateOnboardingSecret,
   validate(onboardTenantRouteSchema),
   tenantController.onboard

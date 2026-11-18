@@ -445,7 +445,7 @@ erDiagram
 ### 7. Arquitetura Técnica e Documentação Relacionada
 
 - **Back-end (API REST)**: Node.js com TypeScript, Express 5 (`async` error propagation nativo), arquitetura em camadas (Routes, Middlewares, Controllers, Services, Repositories) com SQL puro parametrizado via `node-postgres` (`pg`).
-- **Validação & Segurança Aplicada**: Schemas `zod`, JWT `HS256` (`1d`) com validação runtime de payload e consulta unificada no banco, hash `bcrypt`, `express-rate-limit` (`loginLimit` com `skipSuccessfulRequests: true`, `registerLimit`) integrado a `TRUST_PROXY_HOPS`, provisionamento via `ONBOARDING_SECRET` (`crypto.timingSafeEqual`).
+- **Validação & Segurança Aplicada**: Schemas `zod`, JWT `HS256` (`1d`) com validação runtime de payload e consulta unificada no banco, hash `bcrypt`, `express-rate-limit` (`loginLimit` com `skipSuccessfulRequests: true`; `registerLimit` mantido exportado porém desativado nas rotas) integrado a `TRUST_PROXY_HOPS` (usar `0` sem proxy reverso na frente para evitar spoofing de `X-Forwarded-For`), provisionamento via `ONBOARDING_SECRET` (`crypto.timingSafeEqual` + validação *fail-fast* no boot em `src/server.ts`).
 - **Banco de Dados**: PostgreSQL com UUIDv4 (`pgcrypto`), isolamento Multi-Tenant e Multi-Store (chaves compostas `(tenant_id, store_id)` e índices parciais `WHERE deleted_at IS NULL`).
 - **Processamento de Mídias**: Multer (`diskStorage` temporário com limpeza no `finally`) + Sharp (WebP 80%, `thumb` 400x300 e `full` 1280x960) + contrato `StorageProvider` (`LocalStorageProvider`, preparado para `R2StorageProvider`).
 - **Documentação Interativa**: Swagger UI (`/api-docs`) e OpenAPI 3.1 JSON (`/api-docs.json`) servidos em desenvolvimento/teste a partir de [Docs/openapi.yaml](./openapi.yaml).

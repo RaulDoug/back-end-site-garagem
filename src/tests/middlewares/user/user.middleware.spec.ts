@@ -13,6 +13,8 @@ import {
   authenticateJWT,
   authenticateOnboardingSecret,
   createAuthMiddleware,
+  getOnboardingSecret,
+  registerLimit,
   type AuthUserFinder,
 } from '#middlewares/auth.middleware.js';
 import { authorizeRoles, includeDeletedValidateRole } from '#middlewares/role.middleware.js';
@@ -814,5 +816,45 @@ describe('authenticateOnboardingSecret', () => {
     expect(next).toHaveBeenCalledTimes(1);
     expect(next).toHaveBeenCalledWith();
     expect(res.status).not.toHaveBeenCalled();
+  });
+});
+
+describe('getOnboardingSecret', () => {
+  const ORIGINAL_ENV = process.env;
+
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it('deve lançar Error padrão quando ONBOARDING_SECRET estiver ausente', () => {
+    delete process.env.ONBOARDING_SECRET;
+
+    expect(() => getOnboardingSecret()).toThrow(
+      'Variável de ambiente ONBOARDING_SECRET não configurada.'
+    );
+  });
+
+  it('deve lançar Error padrão quando ONBOARDING_SECRET estiver vazia ou apenas espaços', () => {
+    process.env.ONBOARDING_SECRET = '   ';
+
+    expect(() => getOnboardingSecret()).toThrow(
+      'Variável de ambiente ONBOARDING_SECRET não configurada.'
+    );
+  });
+
+  it('deve retornar o segredo trimado quando ONBOARDING_SECRET estiver configurada', () => {
+    process.env.ONBOARDING_SECRET = '  segredo-teste  ';
+
+    expect(getOnboardingSecret()).toBe('segredo-teste');
+  });
+});
+
+describe('registerLimit', () => {
+  it('deve manter registerLimit exportada como middleware Express para reativação futura', () => {
+    expect(typeof registerLimit).toBe('function');
   });
 });
