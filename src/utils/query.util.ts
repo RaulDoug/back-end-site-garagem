@@ -94,7 +94,7 @@ export function buildFindQuery(
   }
 
   if (conditions.length > 0) {
-    query += ` WHERE ${conditions.join(' AND ')}`;
+    query += ` WHERE ${conditions.join(' AND ')};`;
   }
 
   return { query, values };
