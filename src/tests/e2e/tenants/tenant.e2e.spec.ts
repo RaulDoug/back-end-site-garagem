@@ -222,28 +222,18 @@ describe('E2E - /api/tenants', () => {
       );
     });
 
-    it('deve retornar 429 na sexta tentativa de onboarding do mesmo IP (registerLimit)', async () => {
+    it('não deve retornar 429 na sexta tentativa de onboarding do mesmo IP (registerLimit desativado)', async () => {
       const rateLimitIp = nextIp();
 
-      for (let i = 0; i < 5; i += 1) {
+      for (let i = 0; i < 6; i += 1) {
         const res = await request(app)
           .post('/api/tenants/onboard')
           .set('X-Forwarded-For', rateLimitIp)
           .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
           .send({});
+        expect(res.status).toBe(400);
         expect(res.status).not.toBe(429);
       }
-
-      const blockedRes = await request(app)
-        .post('/api/tenants/onboard')
-        .set('X-Forwarded-For', rateLimitIp)
-        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
-        .send({});
-
-      expect(blockedRes.status).toBe(429);
-      expect(blockedRes.body.message).toBe(
-        'Muitas contas criadas a partir deste IP. Tente novamente em 1 hora.'
-      );
     });
   });
 
