@@ -15,9 +15,11 @@ flowchart LR
     F4 --> F5["Fase 5: Arquitetura Multi-Tenant & Hardening Inicial"]
     F5 --> FS["Fase 5.5 (Segurança): Menor Privilégio, RLS, HTTP & LGPD (S0–S10)"]
     FS --> F6["Fase 6: Armazenamento Cloudflare R2 (+ S7.4)"]
-    F6 --> F7["Fase 7: Bancos & Simulador Financeiro"]
+    F6 --> F65["Fase 6.5: Deploy Homologação (dev) & Vertical Slice Frontends"]
+    F65 --> F7["Fase 7: Bancos & Simulador Financeiro"]
     F7 --> F8["Fase 8: CRM (Leads e Trocas)"]
     F8 --> F9["Fase 9: Vendas, Reservas, Auditoria e Cartaz"]
+    F9 --> F10["Fase 10: Backoffice SaaS & Super Usuário"]
 ```
 
 ---
@@ -219,6 +221,31 @@ flowchart LR
   - Criar *Factory* de storage (`LocalStorageProvider` vs `R2StorageProvider`) e remover a rota estática `/uploads` em `src/app.ts` quando o R2 estiver ativo.
 - [ ] **6.4. Testes de Armazenamento, Presigned URLs e Rollback no R2**:
   - Testes unitários de `R2StorageProvider` (`S7.4`, mockando S3) cobrindo buckets, TTL máximo 300s, isolamento de prefixo por tenant, falha de rede e rollback compensatório em `VehicleMediaService`.
+
+---
+
+## Fase 6.5: Deploy de Homologação (`dev`) & Vertical Slice dos Frontends
+> **Objetivo**: Pausar a criação de novas fases do backend após a Fase 6 para subir o ambiente real de homologação (`dev`) e construir o **Vertical Slice** completo (Painel Admin + Pacote NPM `@garagem/sdk` + Vitrine Base/Template), validando ponta a ponta todo o núcleo já implementado (Fases 0 a 6).
+
+### Tarefas
+- [ ] **6.5.1. Provisionamento e Deploy de Homologação (`dev`)**:
+  - Criar a branch `dev` no repositório do backend (`back-end-site-garagem`).
+  - Provisionar banco PostgreSQL no **Neon** (criando branch `dev`), aplicando `schema.sql` e os scripts de segurança `db/security/00..03` (roles `garagem_app`/`garagem_system` e políticas RLS).
+  - Criar os buckets de homologação no **Cloudflare R2** (`R2_PUBLIC_BUCKET` para fotos `.webp` e `R2_PRIVATE_BUCKET` para laudos `.pdf`).
+  - Realizar o deploy da API no **Northflank** (ou Koyeb) conectado à branch `dev`, validando variáveis de ambiente, TLS e CORS (`CORS_ALLOWED_ORIGINS`).
+- [ ] **6.5.2. Monorepo Frontend Core (`site-garagem-web` com `pnpm workspaces`)**:
+  - Inicializar o repositório `site-garagem-web` contendo `packages/garagem-sdk`, `apps/admin` e `apps/vitrine-dev`.
+  - Configurar geração automática de tipagens TypeScript no `packages/garagem-sdk` a partir do contrato OpenAPI do backend (`Docs/openapi.yaml` / `/api-docs.json` via `openapi-typescript`).
+  - Implementar as **2 camadas** do `@garagem/sdk`:
+    1. **Camada Headless (`/api`, `/hooks`, `/types`)**: cliente HTTP com injeção de `x-tenant-id`/`x-store-id` (ou `Bearer` no Admin) e hooks React Query para veículos, filtros, comparador, lojas e catálogo.
+    2. **Camada de Componentes Base (`/ui`)**: componentes visuais prontos (`VehicleCard`, `VehicleFilters`, `PhotoGallery`) estilizados com variáveis CSS para customização rápida de tema.
+- [ ] **6.5.3. Painel Administrativo Global (`apps/admin` — React + Vite)**:
+  - Implementar login multi-tenant, gestão de lojas/usuários, catálogo (`brands`, `models`, `features`) e CRUD completo de veículos com galeria Drag & Drop e upload de laudo PDF no R2.
+  - Configurar deploy contínuo da branch `dev` no **Cloudflare Pages**.
+- [ ] **6.5.4. Vitrine Base (`apps/vitrine-dev`) e Template Repository (`vitrine-template` — Next.js SSR)**:
+  - Construir a vitrine base em **Next.js (App Router / SSR)** consumindo `@garagem/sdk`, garantindo SEO dinâmico e meta tags *OpenGraph* (card com foto e preço do veículo no WhatsApp).
+  - Publicar a primeira versão privada do `@garagem/sdk` no **GitHub Packages** e criar o repositório separado `vitrine-template` marcado como *Template Repository* no GitHub.
+  - Configurar deploy SSR no **Cloudflare Workers** (`@opennextjs/cloudflare`) apontando para a API e bucket R2 de homologação.
 
 ---
 

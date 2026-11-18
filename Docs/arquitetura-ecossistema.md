@@ -43,12 +43,48 @@ flowchart TD
 - **Vantagem**: Zero duplicação de código de regra de negócio; manutenção e deploy centralizados.
 
 ### Pilar 2: Frontend ADM Único (SaaS)
-- **Conceito**: Uma única aplicação web administrativa usada por todas as empresas clientes.
+- **Conceito**: Uma única aplicação web administrativa (`React + Vite` SPA) usada por todas as empresas clientes, hospedada no **Cloudflare Pages**.
 - **Funcionamento**: O usuário autentica com e-mail e senha (com suporte a `tenant_id` opcional para desambiguação caso o mesmo e-mail exista em mais de uma empresa). O backend emite JWT `HS256` (`1d`) contendo `id`, `email`, `role`, `tenantId` e `storeId`.
 
 ### Pilar 3: Frontend de Vitrine por Cliente (Template Repository + Pacote NPM Privado)
-- **Conceito**: Cada garagem cliente possui seu próprio projeto frontend (gerado a partir de um *Template Repository*) permitindo identidade visual dedicada, domínio próprio e SEO.
-- **Pacote NPM Privado (Core)**: Concentra o cliente HTTP configurado para enviar `x-tenant-id` / `x-store-id`, tipagens TypeScript e lógica de busca/filtros/comparação.
+- **Conceito**: Cada garagem cliente possui seu próprio projeto frontend em **Next.js (SSR)** (gerado a partir de um *Template Repository* no GitHub) hospedado no **Cloudflare Workers** (`@opennextjs/cloudflare`), garantindo domínio próprio, SEO no Google e preview de cards com foto/preço no WhatsApp (*OpenGraph*).
+- **Pacote NPM Privado (`@garagem/sdk` via GitHub Packages)**: Dividido em **2 camadas** para atender diferentes perfis de clientes:
+  1. **Camada Headless (`/api`, `/hooks`, `/types`)**: Cliente HTTP configurado para injetar `x-tenant-id` / `x-store-id`, tipagens geradas do OpenAPI (`Docs/openapi.yaml`), schemas Zod e hooks React Query (`useVehicles`, `useVehicleDetails`, `usePublicStore`). Usada sozinha quando o cliente contrata um **layout 100% personalizado do zero**.
+  2. **Camada de Componentes Base (`/ui`)**: Componentes visuais prontos (`<VehicleCard />`, `<VehicleFilters />`, `<PhotoGallery />`) estilizados via variáveis CSS (`--color-primary`, `--radius`, etc.). Usada no `vitrine-template` para **clientes de menor custo**, exigindo apenas configurar cores, fontes e logo.
+
+---
+
+## 1.1. Organização dos 3 Repositórios e Fluxo de Desenvolvimento
+
+Como o GitHub exige um repositório exclusivo para a função *Template Repository*, o ecossistema é dividido em **3 repositórios** para permitir desenvolvimento rápido sem precisar publicar versões no NPM a cada alteração:
+
+| Repositório | Tecnologia | Papel no Ecossistema |
+| :--- | :--- | :--- |
+| **1. `back-end-site-garagem`** | Node.js, Express 5, PostgreSQL, R2 | API Global Multi-Tenant e fonte da verdade do contrato OpenAPI (`Docs/openapi.yaml` / `/api-docs.json`). |
+| **2. `site-garagem-web` (Monorepo Core)** | `pnpm workspaces` | Contém **`apps/admin`** (React + Vite), **`packages/garagem-sdk`** (Pacote NPM privado) e **`apps/vitrine-dev`** (Next.js ligado localmente ao SDK via `workspace:*` para desenvolvimento em tempo real). |
+| **3. `vitrine-template` (Template Repo)** | Next.js (App Router / SSR) | Repositório limpo marcado como *Template* no GitHub que consome `@garagem/sdk` publicado no **GitHub Packages**. A cada novo cliente, clica-se em *"Use this template"* para gerar o repositório dedicado da loja. |
+
+---
+
+## 1.2. Infraestrutura de Cloud e Homologação (`dev` vs `prod`)
+
+| Camada | Serviço Escolhido | Estratégia de Ambientes (`dev` e `prod`) |
+| :--- | :--- | :--- |
+| **Banco de Dados** | **Neon (PostgreSQL Serverless)** | 1 projeto com *Database Branching* nativo: branch `dev` (homologação) e branch `main` (produção), rodando com roles de menor privilégio (`garagem_app` / `garagem_system`) e RLS ativo. |
+| **Storage de Mídias** | **Cloudflare R2 (S3-Compatible)** | Buckets segregados por ambiente e visibilidade: `R2_PUBLIC_BUCKET` para fotos `.webp` (`thumbs`/`full`) e `R2_PRIVATE_BUCKET` para laudos `.pdf` servidos via Presigned URL (`<= 300s`). Zero custo de *egress*. |
+| **Backend (API)** | **Northflank** *(ou Koyeb)* | Deploy contínuo a partir da branch `dev` (homologação) e `main` (produção). Northflank (*Developer Sandbox*) priorizado em homologação por manter o container ativo 24/7 sem *cold start*. |
+| **Front Admin** | **Cloudflare Pages** | Build estático (`React + Vite`) com preview automático por branch (`dev` e `main`). |
+| **Front Vitrines** | **Cloudflare Workers (OpenNext)** | Deploy SSR (`Next.js` via `@opennextjs/cloudflare`) por cliente, com variáveis `NEXT_PUBLIC_TENANT_ID` e `NEXT_PUBLIC_STORE_ID` e domínio customizado. |
+
+---
+
+## 1.3. Compartilhamento de Contratos (Backend -> Frontends e Agentes de IA)
+
+Para garantir sincronia total de entradas (requests) e saídas (responses) entre o repositório do Backend e o Monorepo Frontend:
+
+1. **Fonte Única de Verdade (`Docs/openapi.yaml` / `/api-docs.json`)**: Todo endpoint implementado no backend é obrigatoriamente documentado no `Docs/openapi.yaml` (regra da Seção 4 do `.agents/AGENTS.md`).
+2. **Geração Automática de Tipos no SDK (`openapi-typescript` / `orval`)**: No pacote `packages/garagem-sdk`, um script (`pnpm generate:api`) lê o `Docs/openapi.yaml` (ou a rota `/api-docs.json` da API local/`dev`) e gera automaticamente todas as interfaces TypeScript de Request, Query Params e Response.
+3. **Contexto para Agentes de IA no Frontend**: Os arquivos `Docs/openapi.yaml`, `Docs/api-routes.md` e `Docs/arquitetura-ecossistema.md` fornecem 100% do contrato necessário (rotas, headers `x-tenant-id`/`x-store-id`, códigos de erro `400`/`401`/`403`/`404`/`409` e regras de negócio `RN001`–`RN011`) sem que o frontend precise importar código interno do backend.
 
 ---
 
@@ -117,10 +153,13 @@ flowchart TD
 
 ---
 
-## 4. Próximas Etapas do Backend (Sincronizadas com os Roadmaps)
+## 4. Roteiro de Execução (Backend + Homologação + Vertical Slice Frontends)
 
-1. **Concluir Revisão Socrática da Fase 5**: Finalizar os blocos pendentes de [roadmap-revisao-socratica-fase-5.md](./roadmaps/roadmap-revisao-socratica-fase-5.md) e alinhar `FeatureRepository` com as colunas `is_active`/`deleted_at` já adicionadas ao `schema.sql`.
-2. **Executar Roadmap de Segurança (`S0–S10`)**: Implementar em TDD estrito conforme [roadmap-seguranca.md](./roadmaps/roadmap-seguranca.md).
-3. **Fase 6 — Cloudflare R2 (`+ S7.4`)**: Migrar `StorageProvider` para buckets público/privado do R2 com Presigned URLs e remover `/uploads` estático.
-4. **Fases 7–9**: Bancos/Simulador Financeiro, CRM (Leads e Propostas de Troca com `consent_at`/`consent_version`), Venda/Comissões, Auditoria (sem gravar valores de campos pessoais), Promoções/Banners e Cartaz PDF.
-5. **Fase 10 — Backoffice SaaS & Super Usuário (Operador Global)**: Identidade e autenticação isoladas dos usuários de tenant para gestão centralizada de empresas (onboarding via servidor sem expor `ONBOARDING_SECRET` no browser, suspensão/reativação, catálogo global `tenant_id IS NULL`, configurações e auditoria), preservando o RLS nas rotas de clientes.
+1. **Concluir Fechamento da Fase 5**: Finalizar os blocos pendentes de [roadmap-revisao-socratica-fase-5.md](./roadmaps/roadmap-revisao-socratica-fase-5.md) e alinhar `FeatureRepository` (`5.6`) com as colunas `is_active`/`deleted_at` já adicionadas ao `schema.sql`.
+2. **Fase 5.5 — Executar Roadmap de Segurança (`S0–S10`)**: Implementar em TDD estrito conforme [roadmap-seguranca.md](./roadmaps/roadmap-seguranca.md) (menor privilégio `garagem_app`, `AsyncLocalStorage`, funções `SECURITY DEFINER`, RLS em 100% das tabelas, Helmet/CORS, magic bytes, chaves de storage por tenant, TLS/env e anonimização LGPD).
+3. **Fase 6 — Cloudflare R2 (`+ S7.4`)**: Migrar `StorageProvider` para buckets público/privado do R2 com Presigned URLs (`<= 300s`) e remover `/uploads` estático.
+4. **Fase 6.5 — Deploy de Homologação (`dev`) & Vertical Slice dos Frontends**:
+   - Criar a branch `dev` e provisionar o ambiente de homologação (**Neon** branch `dev` + buckets **Cloudflare R2** + API no **Northflank**).
+   - Pausar temporariamente o avanço para as Fases 7–10 do backend e construir o **Vertical Slice dos Frontends**: Monorepo `site-garagem-web` (`apps/admin` em React + Vite no Cloudflare Pages, `packages/garagem-sdk` com geração de tipos via OpenAPI e `apps/vitrine-dev`) + repositório `vitrine-template` (Next.js SSR no Cloudflare Workers), validando todo o fluxo real de cadastro e vitrine em homologação.
+5. **Fases 7–9 (Retomada do Backend + Evolução dos Frontends)**: Bancos/Simulador Financeiro, CRM (Leads e Propostas de Troca com `consent_at`/`consent_version`), Venda/Comissões, Auditoria (sem gravar valores de campos pessoais), Promoções/Banners e Cartaz PDF.
+6. **Fase 10 — Backoffice SaaS & Super Usuário (Operador Global)**: Identidade e autenticação isoladas dos usuários de tenant para gestão centralizada de empresas (onboarding via servidor sem expor `ONBOARDING_SECRET` no browser, suspensão/reativação, catálogo global `tenant_id IS NULL`, configurações e auditoria), preservando o RLS nas rotas de clientes.
