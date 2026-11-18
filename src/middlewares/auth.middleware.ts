@@ -71,14 +71,24 @@ export const registerLimit = rateLimit({
   legacyHeaders: false,
 });
 
+export const getOnboardingSecret = (): string => {
+  const secret = process.env.ONBOARDING_SECRET?.trim();
+  if (!secret) {
+    throw new Error('Variável de ambiente ONBOARDING_SECRET não configurada.');
+  }
+  return secret;
+};
+
 export const authenticateOnboardingSecret = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  const expectedSecret = process.env.ONBOARDING_SECRET?.trim();
-  if (!expectedSecret) {
-    return next(new Error('Variável de ambiente ONBOARDING_SECRET não configurada.'));
+  let expectedSecret: string;
+  try {
+    expectedSecret = getOnboardingSecret();
+  } catch (error) {
+    return next(error);
   }
 
   const rawHeader = req.headers['x-onboarding-secret'];
