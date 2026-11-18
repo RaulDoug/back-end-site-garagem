@@ -64,6 +64,51 @@ Como o GitHub exige um repositório exclusivo para a função *Template Reposito
 | **2. `site-garagem-web` (Monorepo Core)** | `pnpm workspaces` | Contém **`apps/admin`** (React + Vite), **`packages/garagem-sdk`** (Pacote NPM privado) e **`apps/vitrine-dev`** (Next.js ligado localmente ao SDK via `workspace:*` para desenvolvimento em tempo real). |
 | **3. `vitrine-template` (Template Repo)** | Next.js (App Router / SSR) | Repositório limpo marcado como *Template* no GitHub que consome `@garagem/sdk` publicado no **GitHub Packages**. A cada novo cliente, clica-se em *"Use this template"* para gerar o repositório dedicado da loja. |
 
+### Configuração do Workspace Local Unificado (`Ecossistema-Garagem`)
+
+Para que o desenvolvedor e os agentes de IA tenham visibilidade simultânea dos 3 repositórios, acesso em tempo real à documentação e controle de Git isolado por projeto:
+
+1. **Estrutura da Pasta-Mãe (Sem `.git` na raiz)**:
+   ```text
+   Ecossistema-Garagem/                <-- Pasta-mãe do ecossistema (NUNCA rodar git init aqui)
+   ├── .agents/AGENTS.md               <-- Regras globais de IA compartilhadas para todo o workspace
+   ├── ecossistema.code-workspace      <-- Arquivo de Multi-Root Workspace do VS Code / Antigravity
+   ├── Docs/                           <-- Junction (atalho em tempo real) para back-end-site-garagem/Docs
+   ├── back-end-site-garagem/          <-- Repo 1 (.git independente -> origin do Backend)
+   ├── site-garagem-web/               <-- Repo 2 (.git independente -> origin do Monorepo Front/SDK)
+   └── vitrine-template/               <-- Repo 3 (.git independente -> origin do Template Next.js)
+   ```
+2. **Criação do Atalho em Tempo Real (`Junction` no Windows)**:
+   - Executar no PowerShell dentro da pasta `Ecossistema-Garagem` (não exige permissão de Administrador):
+     ```powershell
+     cmd /c mklink /J Docs back-end-site-garagem\Docs
+     ```
+   - Qualquer alteração nos arquivos dentro de `back-end-site-garagem/Docs` reflete instantaneamente em `Ecossistema-Garagem/Docs`, pois apontam para o mesmo endereço físico no disco, e o Git continua rastreando esses arquivos exclusivamente dentro do repositório `back-end-site-garagem`.
+3. **Arquivo `ecossistema.code-workspace` (Carregamento Imediato dos 3 Gits no Editor)**:
+   - Ao abrir apenas uma pasta sem `.git`, o VS Code/Antigravity só carrega o Git de uma subpasta após abrir um arquivo dela. Criando o arquivo `ecossistema.code-workspace` na raiz e abrindo o projeto por ele (`File -> Open Workspace from File...`), o editor carrega os **3 repositórios Git imediatamente** no painel *Source Control* e no rodapé:
+     ```json
+     {
+       "folders": [
+         { "name": "00 - Raiz & Docs", "path": "." },
+         { "name": "01 - Backend API", "path": "back-end-site-garagem" },
+         { "name": "02 - Monorepo Web (Admin + SDK)", "path": "site-garagem-web" },
+         { "name": "03 - Vitrine Template", "path": "vitrine-template" }
+       ]
+     }
+     ```
+4. **Operação do Git Isolada por Repositório (Terminal e Agente de IA)**:
+   - **Proibido** inicializar Git (`git init`) na pasta-mãe `Ecossistema-Garagem`.
+   - Para executar comandos Git a partir da raiz do workspace sem trocar de diretório a todo momento, utiliza-se a flag `-C <pasta-do-repo>` (ou `cd <pasta-do-repo>`):
+     ```powershell
+     git -C back-end-site-garagem status --short
+     git -C back-end-site-garagem checkout -b security/hardening
+     git -C site-garagem-web status --short
+     git -C vitrine-template status --short
+     ```
+5. **Regras do Agente (`AGENTS.md`) Compartilhadas no Workspace**:
+   - **Regras Gerais (`Ecossistema-Garagem/.agents/AGENTS.md`)**: Contêm o fluxo Planner -> Executor, TDD estrito, regras de Git (`git -C <repo>`, proibição de `git add .`), comunicação TDAH e arquitetura dos 3 repositórios.
+   - **Regras Específicas por Repositório (`<repo>/.agents/AGENTS.md`)**: Cada repositório pode manter um arquivo curto apenas com suas particularidades técnicas (ex.: path aliases `#services/*` no Backend vs. convenções React/Next.js no Frontend), ou referenciar a regra geral via `@[Regras Globais](../../.agents/AGENTS.md)`.
+
 ---
 
 ## 1.2. Infraestrutura de Cloud e Homologação (`dev` vs `prod`)

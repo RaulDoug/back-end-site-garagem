@@ -233,9 +233,10 @@ flowchart LR
   - Provisionar banco PostgreSQL no **Neon** (criando branch `dev`), aplicando `schema.sql` e os scripts de segurança `db/security/00..03` (roles `garagem_app`/`garagem_system` e políticas RLS).
   - Criar os buckets de homologação no **Cloudflare R2** (`R2_PUBLIC_BUCKET` para fotos `.webp` e `R2_PRIVATE_BUCKET` para laudos `.pdf`).
   - Realizar o deploy da API no **Northflank** (ou Koyeb) conectado à branch `dev`, validando variáveis de ambiente, TLS e CORS (`CORS_ALLOWED_ORIGINS`).
-- [ ] **6.5.2. Monorepo Frontend Core (`site-garagem-web` com `pnpm workspaces`)**:
-  - Inicializar o repositório `site-garagem-web` contendo `packages/garagem-sdk`, `apps/admin` e `apps/vitrine-dev`.
-  - Configurar geração automática de tipagens TypeScript no `packages/garagem-sdk` a partir do contrato OpenAPI do backend (`Docs/openapi.yaml` / `/api-docs.json` via `openapi-typescript`).
+- [ ] **6.5.2. Workspace Unificado (`Ecossistema-Garagem`) e Monorepo Frontend Core (`site-garagem-web`)**:
+  - Organizar a pasta-mãe `Ecossistema-Garagem` (sem `.git` na raiz) agrupando `back-end-site-garagem`, `site-garagem-web` e `vitrine-template`, e criar a *Junction* em tempo real da documentação (`cmd /c mklink /J Docs back-end-site-garagem\Docs`).
+  - Inicializar o repositório `site-garagem-web` (`pnpm workspaces`) contendo `packages/garagem-sdk`, `apps/admin` e `apps/vitrine-dev`.
+  - Configurar geração automática de tipagens TypeScript no `packages/garagem-sdk` a partir do contrato OpenAPI do backend (`../../Docs/openapi.yaml` / `/api-docs.json` via `openapi-typescript`).
   - Implementar as **2 camadas** do `@garagem/sdk`:
     1. **Camada Headless (`/api`, `/hooks`, `/types`)**: cliente HTTP com injeção de `x-tenant-id`/`x-store-id` (ou `Bearer` no Admin) e hooks React Query para veículos, filtros, comparador, lojas e catálogo.
     2. **Camada de Componentes Base (`/ui`)**: componentes visuais prontos (`VehicleCard`, `VehicleFilters`, `PhotoGallery`) estilizados com variáveis CSS para customização rápida de tema.
