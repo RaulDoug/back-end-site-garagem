@@ -4,15 +4,17 @@ import pool from '#src/config/database.js';
 import { ensureUploadDirs } from '#utils/storage.util.js';
 import { viewTracker } from '#utils/view-tracker.util.js';
 import { getSecretKey } from '#utils/jwt.util.js';
+import { getOnboardingSecret } from '#middlewares/auth.middleware.js';
 import { VehicleRepository } from '#repositories/vehicle.repository.js';
 
 const vehicleRepository = new VehicleRepository();
 
 const PORT = process.env.PORT || 3000;
 
-async function main() {
+export async function main() {
   try {
     getSecretKey();
+    getOnboardingSecret();
     await pool.query('SELECT NOW()');
     console.log('PostgreSQL conectado com sucesso!');
     
@@ -33,12 +35,14 @@ async function main() {
       }
     }, interval).unref();
   } catch (error) {
-    console.error('Erro ao conectar ao PostgreSQL:', error);
+    console.error('Erro ao inicializar a aplicação:', error);
     process.exit(1);
   }
 }
 
-main();
+if (!process.env.VITEST) {
+  void main();
+}
 
 
 
