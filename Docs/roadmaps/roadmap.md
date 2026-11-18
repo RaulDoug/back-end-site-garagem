@@ -285,3 +285,20 @@ flowchart LR
   - Endpoint de dashboard (`GET /api/reports/summary` para `ADMIN` e `VISUALIZADOR`, filtrado por `tenant_id` e opcionalmente por `store_id`) consolidando total vendido no período, margem bruta, comissões por vendedor, taxa de conversão de leads do site e veículos mais visualizados.
 - [ ] **9.8. Backlog de Segurança Avançada**:
   - MFA para `ADMIN`, CORS dinâmico por tenant, e avaliação de criptografia de colunas pessoais com gestão de chaves.
+
+---
+
+## Fase 10: Backoffice SaaS & Super Usuário (Operador Global)
+> **Objetivo**: Disponibilizar painel e API administrativa exclusivos para o dono/operador do SaaS gerenciar todas as empresas (`tenants`), catálogos globais e configurações da plataforma sem expor `ONBOARDING_SECRET` no navegador e sem quebrar o isolamento RLS das rotas de clientes.
+
+### Tarefas
+- [ ] **10.1. Identidade e Autenticação Isolada do Super Usuário (`saas_operators`)**:
+  - Criar entidade/autenticação segregada dos usuários de garagem (`users`), evitando dependência de `tenant_id` obrigatório e prevenindo escalonamento acidental de privilégio a partir de tokens de tenant.
+  - Exigir segredo/audiência JWT dedicada (ou sessão de backoffice com MFA obrigatório) e middleware próprio (ex.: `authenticatePlatformOperator`), separado de `authenticateJWT`.
+- [ ] **10.2. Gestão Global de Empresas (`tenants`) e Onboarding via Painel**:
+  - Endpoints exclusivos para listar empresas, consultar status/métricas consolidadas, ativar/suspender (`is_active`), editar dados cadastrais/planos e provisionar novas empresas diretamente pelo painel (encapsulando ou substituindo `x-onboarding-secret` no lado servidor — **nunca** expondo a chave no frontend).
+- [ ] **10.3. Gestão de Catálogo Global e Configurações da Plataforma**:
+  - Permitir CRUD de registros globais em `brands` e `features` (`tenant_id IS NULL`) e ajustes de parâmetros operacionais globais com validação estrita.
+- [ ] **10.4. Compatibilidade com RLS (`S1–S5`), Auditoria e Acesso de Suporte**:
+  - Executar consultas cross-tenant por papel/funções dedicadas e auditadas no PostgreSQL, mantendo RLS rígido intacto para todas as rotas de tenant (`garagem_app`).
+  - Registrar trilha de auditoria para ações do Super Usuário (criação, suspensão, alteração global e eventual acesso temporário de suporte/*impersonation*).

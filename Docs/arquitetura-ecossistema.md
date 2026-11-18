@@ -123,3 +123,4 @@ flowchart TD
 2. **Executar Roadmap de Segurança (`S0–S10`)**: Implementar em TDD estrito conforme [roadmap-seguranca.md](./roadmaps/roadmap-seguranca.md).
 3. **Fase 6 — Cloudflare R2 (`+ S7.4`)**: Migrar `StorageProvider` para buckets público/privado do R2 com Presigned URLs e remover `/uploads` estático.
 4. **Fases 7–9**: Bancos/Simulador Financeiro, CRM (Leads e Propostas de Troca com `consent_at`/`consent_version`), Venda/Comissões, Auditoria (sem gravar valores de campos pessoais), Promoções/Banners e Cartaz PDF.
+5. **Fase 10 — Backoffice SaaS & Super Usuário (Operador Global)**: Identidade e autenticação isoladas dos usuários de tenant para gestão centralizada de empresas (onboarding via servidor sem expor `ONBOARDING_SECRET` no browser, suspensão/reativação, catálogo global `tenant_id IS NULL`, configurações e auditoria), preservando o RLS nas rotas de clientes.
