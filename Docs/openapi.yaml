@@ -55,8 +55,8 @@ paths:
       summary: Onboarding Transacional de Nova Empresa (Tenant + Matriz + Admin)
       description: >
         Cria em uma única transação ACID a empresa (`tenant`), a loja matriz (`store`) e o primeiro
-        administrador (`admin`), retornando o token JWT inicial. Protegida por `registerLimit` (5 req/hora por IP)
-        e pela chave de provisionamento enviada no header `x-onboarding-secret`.
+        administrador (`admin`), retornando o token JWT inicial. Protegida pela chave de provisionamento
+        enviada no header `x-onboarding-secret`.
       operationId: onboardTenant
       security:
         - OnboardingSecretAuth: []
@@ -91,12 +91,6 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 message: "CNPJ da empresa já está em uso"
-        '429':
-          description: Limite de provisionamentos por IP excedido
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
   /api/tenants/me:
     get:
@@ -213,7 +207,7 @@ paths:
       tags:
         - Usuários
       summary: Cadastro de Usuário (Admin)
-      description: Cria um novo usuário no tenant do administrador autenticado, com vínculo opcional a uma filial (`store_id`). Requer perfil ADMIN. Possui Rate Limit de 5 cadastros por hora por IP.
+      description: Cria um novo usuário no tenant do administrador autenticado, com vínculo opcional a uma filial (`store_id`). Requer perfil ADMIN.
       operationId: registerUser
       security:
         - BearerAuth: []
@@ -271,12 +265,6 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 message: "E-mail já cadastrado"
-        '429':
-          description: Limite de registros excedido por IP
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
   /api/users:
     get:

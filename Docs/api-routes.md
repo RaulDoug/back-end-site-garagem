@@ -48,7 +48,7 @@ Gerenciamento de empresas no modelo Multi-Tenant hierárquico, permitindo onboar
 
 ## `POST` /api/tenants/onboard
 - **Descrição:** Cria transacionalmente a empresa (`tenant`), sua loja matriz (`store`) e o primeiro usuário administrador (`admin`), retornando imediatamente o token JWT funcional.
-- **Middlewares / Autenticação:** `registerLimit` (máx. 5 requisições por hora por IP), `authenticateOnboardingSecret` (valida o header `x-onboarding-secret` em tempo constante contra `ONBOARDING_SECRET`), `validate(onboardTenantRouteSchema)`.
+- **Middlewares / Autenticação:** `authenticateOnboardingSecret` (valida o header `x-onboarding-secret` em tempo constante contra `ONBOARDING_SECRET`), `validate(onboardTenantRouteSchema)`.
 
 ### Parâmetros & Payload
 - **Headers Obrigatórios:**
@@ -123,7 +123,6 @@ Gerenciamento de empresas no modelo Multi-Tenant hierárquico, permitindo onboar
 - **`400 Bad Request`**: Dados inválidos via Zod (`{ "status": "fail", "errors": [...] }`).
 - **`401 Unauthorized`**: `{"message": "Acesso negado. Chave de provisionamento inválida ou ausente."}`.
 - **`409 Conflict`**: CNPJ da empresa (`"CNPJ da empresa já está em uso"`) ou CNPJ da loja (`"CNPJ da loja já está em uso"`) já cadastrado.
-- **`429 Too Many Requests`**: `{"message": "Muitas contas criadas a partir deste IP. Tente novamente em 1 hora."}`.
 
 ---
 
@@ -243,7 +242,7 @@ Controle de autenticação, criação de credenciais e gerenciamento de perfis d
 
 ## `POST` /api/users/register
 - **Descrição:** Registra um novo usuário vinculado à empresa do administrador logado (`req.user.tenantId`), com senha criptografada e vínculo opcional a uma filial (`store_id`).
-- **Middlewares / Autenticação:** `authenticateJWT`, `registerLimit` (máx. 5 cadastros por hora por IP), `authorizeRoles('ADMIN')`, `validate(createUserSchema)`.
+- **Middlewares / Autenticação:** `authenticateJWT`, `authorizeRoles('ADMIN')`, `validate(createUserSchema)`.
 
 ### Parâmetros & Payload
 - **Path Params (`req.params`):** Nenhum.
@@ -297,7 +296,6 @@ Controle de autenticação, criação de credenciais e gerenciamento de perfis d
 - **`403 Forbidden`**: Perfil sem autorização (não é `ADMIN`).
 - **`404 Not Found`**: `{"message": "Filial informada não encontrada nesta empresa"}` (quando `store_id` não existe ou pertence a outro tenant).
 - **`409 Conflict`**: `{"message": "E-mail já cadastrado"}`.
-- **`429 Too Many Requests`**: `{"message": "Muitas contas criadas a partir deste IP. Tente novamente em 1 hora."}`.
 
 ---
 

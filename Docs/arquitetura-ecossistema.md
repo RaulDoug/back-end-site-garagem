@@ -17,7 +17,7 @@ flowchart TD
 
     subgraph Backend["Backend Global (API Node.js / Express 5)"]
         AuthMW["authenticateJWT\n(Contexto Privado via Token HS256)"]
-        OnboardMW["authenticateOnboardingSecret + registerLimit\n(Provisionamento Protegido)"]
+        OnboardMW["authenticateOnboardingSecret\n(Provisionamento Protegido)"]
         TenantMW["resolvePublicTenantContext\n(Contexto Público via Header > Query)"]
         Services["Services & Repositories\n(Isolamento por tenant_id e store_id)"]
     end
@@ -58,7 +58,7 @@ flowchart TD
    - **Fluxo Privado (`authenticateJWT` em `src/middlewares/auth.middleware.ts`)**: Extrai o token via regex `/^Bearer\s+(\S+)$/i`, valida assinatura `HS256` + schema Zod em runtime (`validateToken` em `src/utils/jwt.util.ts`) e executa 1 única query SQL (`findAuthUserById`) validando usuário, `tenant` e `store` (quando `store_id != null`) ativos e não deletados. Nunca aceita `x-tenant-id` via Header/Query.
    - **Fluxo Público (`resolvePublicTenantContext` em `src/middlewares/tenant.middleware.ts`)**: Usado nas rotas abertas da vitrine (`GET /api/vehicles`, `GET /api/vehicles/compare`, `GET /api/vehicles/:id`). Não lê `req.user` e não possui tenant padrão de fallback. Aceita `x-tenant-id`/`x-store-id` (Headers) ou `tenant_id`/`store_id` (Query) com precedência **Header > Query**, valida existência e status ativo de loja e empresa e retorna `404` unificado (`"Loja não encontrada"`) contra enumeração entre tenants.
 2. **Provisionamento SaaS Protegido (`POST /api/tenants/onboard`)**:
-   - Protegido por `registerLimit` e `authenticateOnboardingSecret` (`crypto.timingSafeEqual` validando `x-onboarding-secret` contra `ONBOARDING_SECRET`).
+   - Protegido por `authenticateOnboardingSecret` (`crypto.timingSafeEqual` validando `x-onboarding-secret` contra `getOnboardingSecret()` / `ONBOARDING_SECRET`, com validação *fail-fast* no boot em `src/server.ts`).
    - Cria em transação ACID (`TenantRepository.onboardTenant`) a empresa, a matriz e o primeiro usuário `ADMIN`.
 3. **Catálogo Híbrido (`brands`, `features`) e Modelos por Tenant (`models`)**:
    - `brands` e `features` permitem leitura combinada `(tenant_id IS NULL OR tenant_id = :tenantId)` e criação customizada por tenant, bloqueando alteração/exclusão de itens globais com `403 Forbidden`.
@@ -69,7 +69,7 @@ flowchart TD
    - `StoreService.findPublicById` (`GET /api/stores/public/:id`) valida que tanto a loja quanto o seu tenant estão ativos e não deletados.
 5. **Sanitização LGPD e Rate Limit com Proxy Reverso**:
    - `sanitizeVehicleForRole` (`src/utils/vehicle-sanitizer.util.ts`) oculta dados confidenciais (`full_license_plate`, `purchase_price`, `owner_*`, `store_commission_rate`) para `PUBLICO` e `VISUALIZADOR`.
-   - `app.set('trust proxy', ...)` lê `TRUST_PROXY_HOPS` em `src/app.ts` e `loginLimit` utiliza `skipSuccessfulRequests: true`.
+   - `app.set('trust proxy', ...)` lê `TRUST_PROXY_HOPS` em `src/app.ts` e `loginLimit` utiliza `skipSuccessfulRequests: true` (em ambientes sem proxy reverso na frente, configurar `TRUST_PROXY_HOPS=0` para impedir spoofing de `X-Forwarded-For`).
 
 ---
 
