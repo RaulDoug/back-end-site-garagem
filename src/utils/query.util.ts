@@ -48,7 +48,10 @@ export function buildUpdateQuery(
   const finalValues: unknown[] = [...values, id];
   let tenantClause = '';
 
-  if (options?.tenantId) {
+  if (options?.tenantId !== undefined) {
+    if (typeof options.tenantId !== 'string' || options.tenantId.trim() === '') {
+      throw new BadRequestError('Identificador de tenant inválido');
+    }
     tenantClause = ` AND tenant_id = $${finalValues.length + 1}`;
     finalValues.push(options.tenantId);
   }

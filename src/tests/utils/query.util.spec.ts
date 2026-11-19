@@ -67,4 +67,28 @@ describe('query.util - buildUpdateQuery', () => {
 
     expect(() => buildUpdateQuery('stores', data, 'target-uuid-1')).toThrow(BadRequestError);
   });
+
+  it('deve lançar BadRequestError quando options.tenantId for string vazia ou apenas espaços', () => {
+    expect(() =>
+      buildUpdateQuery('stores', { name: 'Loja' }, 'id-1', { tenantId: '' })
+    ).toThrow(BadRequestError);
+    expect(() =>
+      buildUpdateQuery('stores', { name: 'Loja' }, 'id-1', { tenantId: '' })
+    ).toThrow('Identificador de tenant inválido');
+
+    expect(() =>
+      buildUpdateQuery('stores', { name: 'Loja' }, 'id-1', { tenantId: '   ' })
+    ).toThrow(BadRequestError);
+    expect(() =>
+      buildUpdateQuery('stores', { name: 'Loja' }, 'id-1', { tenantId: '   ' })
+    ).toThrow('Identificador de tenant inválido');
+  });
+
+  it('deve permitir options.tenantId igual a undefined sem adicionar cláusula tenant_id', () => {
+    const result = buildUpdateQuery('vehicles', { name: 'Gol' }, 'id-1', { tenantId: undefined });
+    expect(result.query).toBe(
+      'UPDATE vehicles SET name = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING *;'
+    );
+    expect(result.values).toEqual(['Gol', 'id-1']);
+  });
 });
