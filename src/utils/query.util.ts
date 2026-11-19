@@ -78,7 +78,16 @@ export function buildFindQuery(
   assertValidIdentifier(tableName);
   const { filters: filterArray, includeDeleted } = filters;
 
-  let query = `SELECT * FROM ${tableName}`;
+  let selectedColumns = '*';
+  if (options?.columns !== undefined) {
+    if (!Array.isArray(options.columns) || options.columns.length === 0) {
+      throw new BadRequestError('A lista de colunas para seleção não pode ser vazia');
+    }
+    options.columns.forEach(assertValidIdentifier);
+    selectedColumns = options.columns.join(', ');
+  }
+
+  let query = `SELECT ${selectedColumns} FROM ${tableName}`;
   const values: unknown[] = [];
   const conditions: string[] = [];
 
@@ -133,6 +142,27 @@ export function buildFindQuery(
 
   if (conditions.length > 0) {
     query += ` WHERE ${conditions.join(' AND ')}`;
+  }
+
+  if (options?.orderBy !== undefined) {
+    assertValidIdentifier(options.orderBy.field);
+    const direction = options.orderBy.direction ?? 'ASC';
+    if (direction !== 'ASC' && direction !== 'DESC') {
+      throw new BadRequestError(`Direção de ordenação inválida: ${String(direction)}`);
+    }
+    query += ` ORDER BY ${options.orderBy.field} ${direction}`;
+  }
+
+  if (options?.limit !== undefined) {
+    if (
+      typeof options.limit !== 'number' ||
+      !Number.isInteger(options.limit) ||
+      options.limit <= 0
+    ) {
+      throw new BadRequestError('O limite deve ser um número inteiro positivo');
+    }
+    values.push(options.limit);
+    query += ` LIMIT $${values.length}`;
   }
 
   return { query, values };

@@ -54,8 +54,12 @@ export default class BaseRepository<
     return result.rows[0] || null;
   }
 
-  async find(filters: FindData): Promise<T[]> {
-    const { query, values } = buildFindQuery(this.tableName, filters, this.options);
+  async find(filters: FindData, tenantId?: string): Promise<T[]> {
+    const findOptions = {
+      ...this.options,
+      ...(tenantId !== undefined && this.columns.includes('tenant_id') ? { tenantId } : {}),
+    };
+    const { query, values } = buildFindQuery(this.tableName, filters, findOptions);
 
     const result = await pool.query<T>(query, values);
 
@@ -76,7 +80,7 @@ export default class BaseRepository<
 
     const updateOptions = {
       ...this.options,
-      ...(tenantId && this.columns.includes('tenant_id') ? { tenantId } : {}),
+      ...(tenantId !== undefined && this.columns.includes('tenant_id') ? { tenantId } : {}),
     };
 
     const { query, values } = buildUpdateQuery(this.tableName, data as Record<string, unknown>, id, updateOptions);

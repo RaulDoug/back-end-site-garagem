@@ -153,4 +153,92 @@ describe('query.util - buildFindQuery (segurança e filtros)', () => {
       buildFindQuery('stores', { filters: [] }, { tenantId: '   ' as never })
     ).toThrow('Identificador de tenant inválido');
   });
+
+  it('deve projetar colunas específicas, aplicar ORDER BY e parametrizar LIMIT quando informados em options', () => {
+    const result = buildFindQuery(
+      'users',
+      { filters: [{ field: 'is_active', operator: '=', value: true }] },
+      {
+        columns: ['id', 'name', 'email'],
+        orderBy: { field: 'created_at', direction: 'DESC' },
+        limit: 25,
+      }
+    );
+
+    expect(result.query).toBe(
+      'SELECT id, name, email FROM users WHERE deleted_at IS NULL AND is_active = $1 ORDER BY created_at DESC LIMIT $2'
+    );
+    expect(result.values).toEqual([true, 25]);
+  });
+
+  it('deve lançar BadRequestError para columns vazio/inválido, orderBy inválido ou limit não-positivo', () => {
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { columns: [] }
+      )
+    ).toThrow(BadRequestError);
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { columns: [] }
+      )
+    ).toThrow('A lista de colunas para seleção não pode ser vazia');
+
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { columns: ['id', 'password; --'] }
+      )
+    ).toThrow(BadRequestError);
+
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { orderBy: { field: 'created_at', direction: 'RANDOM' as never } }
+      )
+    ).toThrow(BadRequestError);
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { orderBy: { field: 'created_at', direction: 'RANDOM' as never } }
+      )
+    ).toThrow('Direção de ordenação inválida: RANDOM');
+
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { limit: 0 }
+      )
+    ).toThrow(BadRequestError);
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { limit: 0 }
+      )
+    ).toThrow('O limite deve ser um número inteiro positivo');
+
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { limit: -5 }
+      )
+    ).toThrow('O limite deve ser um número inteiro positivo');
+
+    expect(() =>
+      buildFindQuery(
+        'users',
+        { filters: [] },
+        { limit: 1.5 }
+      )
+    ).toThrow('O limite deve ser um número inteiro positivo');
+  });
 });
