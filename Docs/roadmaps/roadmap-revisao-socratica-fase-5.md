@@ -34,7 +34,7 @@
     1. Trace o que acontece quando `JWT_SECRET` ou `ONBOARDING_SECRET` está ausente no `.env` vs. quando o cliente envia um token com `id: "nao-uuid"` ou header `x-onboarding-secret` de tamanho diferente (por que checar `byteLength` antes de `timingSafeEqual`?).
     2. O que acontece se um token JWT válido tiver `storeId: null`, mas no banco o usuário estiver vinculado a uma filial que acabou de ser desativada?
 
-- [ ] **`[MODIFICAÇÃO ALTA]`** [query.util.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/utils/query.util.ts)
+- [x] **`[MODIFICAÇÃO ALTA]`** [query.util.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/utils/query.util.ts)
   - **Escopo**: `buildUpdateQuery` com filtro por `tenant_id` no `WHERE` e bloqueio de mutação nas colunas `id`, `tenant_id` e `created_at`.
   - **Foco no Mental Debugging**: Rastreie os índices dos placeholders `$1, $2, $3...` quando `data` contém `tenant_id` malicioso e `options.tenantId` está ativo.
 
