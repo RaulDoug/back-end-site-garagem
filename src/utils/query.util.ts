@@ -12,9 +12,13 @@ function assertValidIdentifier(identifier: string): void {
 
 export function buildInsertQuery(tableName: string, data: Record<string, unknown>): { query: string; values: unknown[] } {
   assertValidIdentifier(tableName);
-  const columns = Object.keys(data);
+  const validEntries = Object.entries(data).filter(([, value]) => value !== undefined);
+  if (validEntries.length === 0) {
+    throw new BadRequestError('Nenhum campo válido informado para inserção');
+  }
+  const columns = validEntries.map(([key]) => key);
   columns.forEach(assertValidIdentifier);
-  const values = Object.values(data);
+  const values = validEntries.map(([, value]) => value);
   const placeholders = columns.map((_, index) => `$${index + 1}`);
   const query = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *;`;
   return { query, values };

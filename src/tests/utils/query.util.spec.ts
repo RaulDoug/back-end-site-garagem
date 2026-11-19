@@ -1,6 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { buildUpdateQuery } from '#src/utils/query.util.js';
+import { buildInsertQuery, buildUpdateQuery } from '#src/utils/query.util.js';
 import { BadRequestError } from '#src/errors/app.error.js';
+
+describe('query.util - buildInsertQuery', () => {
+  it('deve montar INSERT ignorando campos com valor undefined e preservando null', () => {
+    const result = buildInsertQuery('brands', { name: 'Toyota', notes: undefined, deleted_at: null });
+    expect(result.query).toBe('INSERT INTO brands (name, deleted_at) VALUES ($1, $2) RETURNING *;');
+    expect(result.values).toEqual(['Toyota', null]);
+  });
+
+  it('deve lançar BadRequestError quando data for vazio ou contiver apenas valores undefined', () => {
+    expect(() => buildInsertQuery('brands', {})).toThrow(BadRequestError);
+    expect(() => buildInsertQuery('brands', {})).toThrow('Nenhum campo válido informado para inserção');
+    expect(() => buildInsertQuery('brands', { name: undefined })).toThrow(BadRequestError);
+    expect(() => buildInsertQuery('brands', { name: undefined })).toThrow('Nenhum campo válido informado para inserção');
+  });
+
+  it('deve lançar BadRequestError quando tableName ou coluna contiver identificador inválido', () => {
+    expect(() => buildInsertQuery('brands; DROP TABLE users', { name: 'X' })).toThrow(BadRequestError);
+    expect(() => buildInsertQuery('brands', { 'name; --': 'X' })).toThrow(BadRequestError);
+  });
+});
 
 describe('query.util - buildUpdateQuery', () => {
   it('deve montar SET ignorando id, tenant_id, created_at e campos com valor undefined', () => {
