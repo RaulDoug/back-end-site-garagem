@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildInsertQuery, buildUpdateQuery } from '#src/utils/query.util.js';
+import { buildInsertQuery, buildUpdateQuery, buildFindQuery } from '#src/utils/query.util.js';
 import { BadRequestError } from '#src/errors/app.error.js';
 
 describe('query.util - buildInsertQuery', () => {
@@ -90,5 +90,67 @@ describe('query.util - buildUpdateQuery', () => {
       'UPDATE vehicles SET name = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING *;'
     );
     expect(result.values).toEqual(['Gol', 'id-1']);
+  });
+});
+
+describe('query.util - buildFindQuery (segurança e filtros)', () => {
+  it('deve montar SELECT com deleted_at IS NULL, ILIKE e = ANY para operador IN com array', () => {
+    const result = buildFindQuery('vehicles', {
+      filters: [
+        { field: 'name', operator: 'ILIKE', value: 'Civic' },
+        { field: 'status', operator: 'IN', value: ['ATIVO', 'RESERVADO'] },
+      ],
+      includeDeleted: false,
+    });
+
+    expect(result.query).toBe(
+      'SELECT * FROM vehicles WHERE deleted_at IS NULL AND name ILIKE $1 AND status = ANY($2)'
+    );
+    expect(result.values).toEqual(['%Civic%', ['ATIVO', 'RESERVADO']]);
+  });
+
+  it('deve lançar BadRequestError quando operator for IN e value não for array', () => {
+    expect(() =>
+      buildFindQuery('vehicles', {
+        filters: [{ field: 'status', operator: 'IN', value: 'ATIVO' as never }],
+      })
+    ).toThrow(BadRequestError);
+    expect(() =>
+      buildFindQuery('vehicles', {
+        filters: [{ field: 'status', operator: 'IN', value: 'ATIVO' as never }],
+      })
+    ).toThrow('O operador IN exige um array de valores');
+  });
+
+  it('deve lançar BadRequestError quando filter.operator estiver fora da allowlist em runtime', () => {
+    expect(() =>
+      buildFindQuery('vehicles', {
+        filters: [{ field: 'status', operator: '= 1 OR 1=1 --' as never, value: 'ATIVO' }],
+      })
+    ).toThrow(BadRequestError);
+    expect(() =>
+      buildFindQuery('vehicles', {
+        filters: [{ field: 'status', operator: '= 1 OR 1=1 --' as never, value: 'ATIVO' }],
+      })
+    ).toThrow('Operador inválido: = 1 OR 1=1 --');
+  });
+
+  it('deve aplicar filtro tenant_id quando options.tenantId for informado e rejeitar tenantId vazio', () => {
+    const result1 = buildFindQuery(
+      'stores',
+      { filters: [{ field: 'name', operator: '=', value: 'Matriz' }] },
+      { tenantId: 'tenant-123' as never }
+    );
+    expect(result1.query).toBe(
+      'SELECT * FROM stores WHERE deleted_at IS NULL AND tenant_id = $1 AND name = $2'
+    );
+    expect(result1.values).toEqual(['tenant-123', 'Matriz']);
+
+    expect(() =>
+      buildFindQuery('stores', { filters: [] }, { tenantId: '   ' as never })
+    ).toThrow(BadRequestError);
+    expect(() =>
+      buildFindQuery('stores', { filters: [] }, { tenantId: '   ' as never })
+    ).toThrow('Identificador de tenant inválido');
   });
 });

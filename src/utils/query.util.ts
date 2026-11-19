@@ -3,6 +3,15 @@ import { BadRequestError } from '#src/errors/app.error.js';
 
 const SAFE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const IMMUTABLE_UPDATE_COLUMNS = new Set(['id', 'tenant_id', 'created_at']);
+const ALLOWED_FIND_OPERATORS = new Set(['=', '>=', '<=', 'ILIKE', 'IN']);
+
+export interface BuildFindQueryOptions {
+  softDelete?: boolean;
+  tenantId?: string;
+  columns?: string[];
+  orderBy?: { field: string; direction?: 'ASC' | 'DESC' };
+  limit?: number;
+}
 
 function assertValidIdentifier(identifier: string): void {
   if (!SAFE_IDENTIFIER_REGEX.test(identifier)) {
@@ -64,7 +73,7 @@ export function buildUpdateQuery(
 export function buildFindQuery(
   tableName: string,
   filters: FindData,
-  options?: { softDelete?: boolean }
+  options?: BuildFindQueryOptions
 ): { query: string; values: unknown[] } {
   assertValidIdentifier(tableName);
   const { filters: filterArray, includeDeleted } = filters;
@@ -78,30 +87,52 @@ export function buildFindQuery(
     conditions.push('deleted_at IS NULL');
   }
 
+  if (options?.tenantId !== undefined) {
+    if (typeof options.tenantId !== 'string' || options.tenantId.trim() === '') {
+      throw new BadRequestError('Identificador de tenant inválido');
+    }
+    const hasTenantFilter = filterArray.some(
+      (f) => f.field === 'tenant_id' && f.value !== undefined && f.value !== null && String(f.value).trim() !== ''
+    );
+    if (!hasTenantFilter) {
+      values.push(options.tenantId);
+      conditions.push(`tenant_id = $${values.length}`);
+    }
+  }
+
   for (const filter of filterArray) {
-    if (filter.value === undefined || filter.value === null || (typeof filter.value === 'string' && filter.value.trim() === '') || Array.isArray(filter.value) && filter.value.length === 0) {
+    if (
+      filter.value === undefined ||
+      filter.value === null ||
+      (typeof filter.value === 'string' && filter.value.trim() === '') ||
+      (Array.isArray(filter.value) && filter.value.length === 0)
+    ) {
       continue;
     }
 
     assertValidIdentifier(filter.field);
 
-    if (filter.operator === 'IN' && Array.isArray(filter.value)) {
-      values.push(filter.value);
+    if (!ALLOWED_FIND_OPERATORS.has(filter.operator)) {
+      throw new BadRequestError(`Operador inválido: ${String(filter.operator)}`);
+    }
 
+    if (filter.operator === 'IN') {
+      if (!Array.isArray(filter.value)) {
+        throw new BadRequestError('O operador IN exige um array de valores');
+      }
+      values.push(filter.value);
       conditions.push(`${filter.field} = ANY($${values.length})`);
-    }else if (filter.operator === 'ILIKE') {
+    } else if (filter.operator === 'ILIKE') {
       values.push(`%${filter.value}%`);
-
       conditions.push(`${filter.field} ILIKE $${values.length}`);
-    }else {
+    } else {
       values.push(filter.value);
-
       conditions.push(`${filter.field} ${filter.operator} $${values.length}`);
-    }        
+    }
   }
 
   if (conditions.length > 0) {
-    query += ` WHERE ${conditions.join(' AND ')};`;
+    query += ` WHERE ${conditions.join(' AND ')}`;
   }
 
   return { query, values };
