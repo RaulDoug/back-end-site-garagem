@@ -52,8 +52,8 @@ Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string,
 - **Propriedades:** `protected columns: string[] = []`, `options: { softDelete?: boolean; hasActiveStatus?: boolean }` (ambos `true` por padrão).
 - **`findById(id: string, tenantId?: string): Promise<T | null>`:**
   - Executa `SELECT * FROM ${this.tableName} WHERE id = $1` adicionando `AND tenant_id = $2` se `tenantId && this.columns.includes('tenant_id')` e `AND deleted_at IS NULL` se `options.softDelete`.
-- **`find(filters: FindData): Promise<T[]>`:**
-  - Gera SQL via `buildFindQuery(this.tableName, filters, this.options)` (suporta `=`, `>=`, `<=`, `ILIKE`, `IN`/`ANY`, `includeDeleted`).
+- **`find(filters: FindData, tenantId?: string): Promise<T[]>`:**
+  - Gera SQL via `buildFindQuery(this.tableName, filters, findOptions)` (repassa `tenantId` em `findOptions` quando `this.columns.includes('tenant_id')`; suporta `=`, `>=`, `<=`, `ILIKE`, `IN`/`ANY`, `includeDeleted`, `columns`, `orderBy` e `limit`).
 - **`create(data: C): Promise<T>`:**
   - Gera SQL via `buildInsertQuery(this.tableName, data)`.
 - **`update(id: string, data: Partial<C>, tenantId?: string): Promise<T | null>`:**

@@ -317,18 +317,18 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `buildInsertQuery(tableName: string, data: Record<string, unknown>): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Constrói dinamicamente uma declaração SQL `INSERT INTO` parametrizada com parâmetros posicionais `$1, $2...` e cláusula `RETURNING *`. Valida preventivamente o nome da tabela e todas as colunas com `assertValidIdentifier` (`/^[a-zA-Z_][a-zA-Z0-9_]*$/`) para blindagem contra SQL Injection.
+- **Descrição:** Constrói dinamicamente uma declaração SQL `INSERT INTO` parametrizada com parâmetros posicionais `$1, $2...` e cláusula `RETURNING *`. Valida preventivamente o nome da tabela e todas as colunas com `assertValidIdentifier` (`/^[a-zA-Z_][a-zA-Z0-9_]*$/`) para blindagem contra SQL Injection. Filtra automaticamente propriedades cujo valor seja `undefined` (preservando `null`, `false`, `0` e `''`); caso não reste nenhuma coluna válida, lança `BadRequestError('Nenhum campo válido informado para inserção')`.
 - **Assinatura & Parâmetros:**
   - `tableName` (`string`): Nome da tabela no PostgreSQL (validado contra regex).
   - `data` (`Record<string, unknown>`): Chave-valor das colunas e valores a inserir.
 - **Retorno:** `{ query: string; values: unknown[] }`.
 - **Exemplo Real (Extraído dos testes do Vitest):**
-  - Entrada: `buildInsertQuery("brands", { name: "Toyota" })`
+  - Entrada: `buildInsertQuery("brands", { name: "Toyota", notes: undefined, deleted_at: null })`
   - Saída:
     ```javascript
     {
-      query: "INSERT INTO brands (name) VALUES ($1) RETURNING *;",
-      values: ["Toyota"]
+      query: "INSERT INTO brands (name, deleted_at) VALUES ($1, $2) RETURNING *;",
+      values: ["Toyota", null]
     }
     ```
 
@@ -336,7 +336,7 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `buildUpdateQuery(tableName: string, data: Record<string, unknown>, id: string, options?: { softDelete?: boolean; tenantId?: string }): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Constrói uma query SQL `UPDATE` parametrizada vinculando colunas mutáveis e aplicando `id` e (quando informado) `tenant_id` no `WHERE`. Bloqueia explicitamente qualquer mutação nas colunas imutáveis (`id`, `tenant_id`, `created_at`) e ignora valores `undefined` (lançando `BadRequestError('Nenhum campo válido informado para atualização')` se nada restar). Valida identificadores com `assertValidIdentifier` e, quando `options?.softDelete !== false` (padrão), anexa `AND deleted_at IS NULL`.
+- **Descrição:** Constrói uma query SQL `UPDATE` parametrizada vinculando colunas mutáveis e aplicando `id` e (quando informado) `tenant_id` no `WHERE`. Bloqueia explicitamente qualquer mutação nas colunas imutáveis (`id`, `tenant_id`, `created_at`) e ignora valores `undefined` (lançando `BadRequestError('Nenhum campo válido informado para atualização')` se nada restar). Valida identificadores com `assertValidIdentifier` e, quando `options?.softDelete !== false` (padrão), anexa `AND deleted_at IS NULL`. Se `options.tenantId` for informado mas for vazio ou composto apenas por espaços (`""` ou `"   "`), lança `BadRequestError('Identificador de tenant inválido')`.
 - **Assinatura & Parâmetros:**
   - `tableName` (`string`): Nome da tabela no PostgreSQL.
   - `data` (`Record<string, unknown>`): Colunas a serem modificadas (campos em `IMMUTABLE_UPDATE_COLUMNS` são filtrados).
@@ -359,27 +359,35 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
-### `buildFindQuery(tableName: string, filters: FindData, options?: { softDelete?: boolean }): { query: string; values: unknown[] }`
+### `buildFindQuery(tableName: string, filters: FindData, options?: BuildFindQueryOptions): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Monta a query SQL `SELECT` com operadores relacionais dinâmicos (`=`, `>=`, `<=`, `ILIKE`, `ANY`), controle de `deleted_at IS NULL` e placeholders sequenciais. Todos os identificadores de campos são verificados com `assertValidIdentifier`.
+- **Descrição:** Monta a query SQL `SELECT` com controle de `deleted_at IS NULL`, isolamento opcional de `tenant_id`, projeção explícita de `columns`, ordenação (`orderBy`), paginação (`limit`) e placeholders sequenciais. Todos os identificadores de tabela, colunas e campos são blindados com `assertValidIdentifier`. Os operadores de busca são validados em runtime contra allowlist estrita `ALLOWED_FIND_OPERATORS` (`=`, `>=`, `<=`, `ILIKE`, `IN`). Para o operador `IN`, exige obrigatoriamente um array de valores (lançando `BadRequestError` caso contrário) e monta `${field} = ANY($n)`.
 - **Assinatura & Parâmetros:**
   - `tableName` (`string`): Nome da tabela.
-  - `filters` (`FindData`): Filtros processados.
-  - `options` (`{ softDelete?: boolean }`): Flag de soft-delete (padrão `true`).
+  - `filters` (`FindData`): Filtros posicionais (`filters: Filter[]`, `includeDeleted?: boolean`).
+  - `options` (`BuildFindQueryOptions`, opcional):
+    - `softDelete?: boolean`: Flag de soft-delete (padrão `true`).
+    - `tenantId?: string`: Identificador do tenant para cláusula `tenant_id = $n` (rejeita strings vazias/espaços).
+    - `columns?: string[]`: Projeção de colunas específicas (padrão `*`, rejeita array vazio e identificadores inválidos).
+    - `orderBy?: { field: string; direction?: 'ASC' | 'DESC' }`: Ordenação segura.
+    - `limit?: number`: Limite de registros (exige inteiro positivo parametrizado).
 - **Retorno:** `{ query: string; values: unknown[] }`.
 - **Exemplo Real (Extraído dos testes do Vitest):**
   - Entrada:
     ```javascript
-    buildFindQuery("models", {
-      filters: [{ field: "name", operator: "ILIKE", value: "Corolla" }],
+    buildFindQuery("vehicles", {
+      filters: [
+        { field: "name", operator: "ILIKE", value: "Civic" },
+        { field: "status", operator: "IN", value: ["ATIVO", "RESERVADO"] }
+      ],
       includeDeleted: false
     })
     ```
   - Saída:
     ```javascript
     {
-      query: "SELECT * FROM models WHERE deleted_at IS NULL AND name ILIKE $1",
-      values: ["%Corolla%"]
+      query: "SELECT * FROM vehicles WHERE deleted_at IS NULL AND name ILIKE $1 AND status = ANY($2)",
+      values: ["%Civic%", ["ATIVO", "RESERVADO"]]
     }
     ```
 
