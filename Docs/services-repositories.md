@@ -21,7 +21,7 @@ Esta documentação detalha a arquitetura da camada de negócio (`services`) e d
 
 # Módulo: Base / Infraestrutura Genérica
 
-Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string, unknown>`), fornecendo operações CRUD reutilizáveis com suporte nativo a isolamento multi-tenant (`tenantId?: string`) condicionado à declaração `this.columns.includes('tenant_id')`.
+Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string, unknown>`), fornecendo operações CRUD reutilizáveis com suporte nativo a isolamento multi-tenant (`tenantId?: string`) controlado por `options.tenantScoped` (padrão `true`; fail-closed sem depender de `columns`). Apenas tabelas raiz sem `tenant_id` (como `tenants`) declaram `tenantScoped: false`.
 
 ---
 
@@ -49,17 +49,17 @@ Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string,
 ### 2. Camada de Persistência (`BaseRepository<T, C>`)
 **Arquivo:** `src/repositories/base.repository.ts`
 
-- **Propriedades:** `protected columns: string[] = []`, `options: { softDelete?: boolean; hasActiveStatus?: boolean }` (ambos `true` por padrão). O construtor valida `tableName` via `assertValidIdentifier(tableName)` antes de configurar as opções (lança `400 BadRequestError` para identificadores inválidos).
+- **Propriedades:** `protected columns: string[] = []` (usado apenas para projeção e documentação; não decide mais o isolamento por tenant), `options: { softDelete?: boolean; hasActiveStatus?: boolean; tenantScoped?: boolean }` (todos `true` por padrão; `tenants` é o único repositório com `tenantScoped: false`) e getter `protected get isTenantScoped(): boolean` (`options.tenantScoped !== false`). O construtor valida `tableName` via `assertValidIdentifier(tableName)` antes de configurar as opções (lança `400 BadRequestError` para identificadores inválidos).
 - **`findById(id: string, tenantId?: string): Promise<T | null>`:**
-  - Executa `SELECT * FROM ${this.tableName} WHERE id = $1` adicionando `AND tenant_id = $2` se `tenantId && this.columns.includes('tenant_id')` e `AND deleted_at IS NULL` se `options.softDelete`.
+  - Executa `SELECT * FROM ${this.tableName} WHERE id = $1` adicionando `AND tenant_id = $2` se `tenantId && this.isTenantScoped` e `AND deleted_at IS NULL` se `options.softDelete`.
 - **`find(filters: FindData, tenantId?: string): Promise<T[]>`:**
-  - Gera SQL via `buildFindQuery(this.tableName, filters, findOptions)` (repassa `tenantId` em `findOptions` quando `this.columns.includes('tenant_id')`; suporta `=`, `>=`, `<=`, `ILIKE`, `IN`/`ANY`, `includeDeleted`, `columns`, `orderBy` e `limit`).
+  - Gera SQL via `buildFindQuery(this.tableName, filters, findOptions)` (repassa `{ softDelete: this.options.softDelete }` e `tenantId` quando `this.isTenantScoped && tenantId !== undefined`; suporta `=`, `>=`, `<=`, `ILIKE`, `IN`/`ANY`, `includeDeleted`, `columns`, `orderBy` e `limit`).
 - **`create(data: C): Promise<T>`:**
   - Gera SQL via `buildInsertQuery(this.tableName, data)`.
 - **`update(id: string, data: Partial<C>, tenantId?: string): Promise<T | null>`:**
-  - Retorna `null` se `data` estiver vazio. Repassa `this.options` e `tenantId` (se `this.columns.includes('tenant_id')`) para `buildUpdateQuery` (que bloqueia `id`, `tenant_id` e `created_at` e filtra `AND tenant_id = $n` e `AND deleted_at IS NULL`).
+  - Retorna `null` se `data` estiver vazio. Repassa `{ softDelete: this.options.softDelete }` e `tenantId` (se `this.isTenantScoped && tenantId !== undefined`) para `buildUpdateQuery` (que bloqueia `id`, `tenant_id` e `created_at` e filtra `AND tenant_id = $n` e `AND deleted_at IS NULL`).
 - **`delete(id: string, tenantId?: string): Promise<T | null>`:**
-  - Inclui `AND tenant_id = $2` quando aplicável.
+  - Inclui `AND tenant_id = $2` quando `tenantId && this.isTenantScoped`.
   - Se `softDelete`: `UPDATE ${tableName} SET deleted_at = NOW() [, is_active = false] WHERE id = $1... AND deleted_at IS NULL RETURNING *;`.
   - Se `!softDelete`: `DELETE FROM ${tableName} WHERE id = $1... RETURNING *;`.
 
@@ -72,7 +72,7 @@ Gestão da entidade raiz da arquitetura Multi-Tenant hierárquica e seu fluxo de
 ---
 
 ### 1. Camada de Repositório (`TenantRepository`)
-**Arquivo:** `src/repositories/tenant.repository.ts` (`softDelete: true, hasActiveStatus: true`, `customPool: Pool = pool`)
+**Arquivo:** `src/repositories/tenant.repository.ts` (`softDelete: true, hasActiveStatus: true, tenantScoped: false`, `customPool: Pool = pool`)
 
 #### `findByCNPJ(cnpj: string): Promise<Tenant | null>`
 - **Operação:** `SELECT * FROM tenants WHERE (cnpj = $1 OR regexp_replace(cnpj, '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g')) AND deleted_at IS NULL LIMIT 1;`.

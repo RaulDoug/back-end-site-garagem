@@ -51,7 +51,7 @@ export class TenantRepository extends BaseRepository<Tenant, CreateTenantData> {
   protected pool: Pool;
 
   constructor(customPool: Pool = pool) {
-    super('tenants', { softDelete: true, hasActiveStatus: true });
+    super('tenants', { softDelete: true, hasActiveStatus: true, tenantScoped: false });
     this.pool = customPool;
   }
 

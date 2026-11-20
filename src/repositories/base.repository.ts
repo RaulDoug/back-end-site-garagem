@@ -5,6 +5,9 @@ import { QueryResultRow } from 'pg';
 interface RepositoryOptions {
     softDelete?: boolean;
     hasActiveStatus?: boolean;
+    /** true (padrão): a tabela tem tenant_id e o tenantId informado SEMPRE gera filtro.
+     *  false: tabela raiz sem tenant_id (ex.: tenants); tenantId é ignorado. */
+    tenantScoped?: boolean;
 }
 
 export interface FindParams {
@@ -26,10 +29,19 @@ export default class BaseRepository<
 
   constructor(
         protected tableName: string,
-        protected options: RepositoryOptions = { softDelete: true, hasActiveStatus: true }
+        protected options: RepositoryOptions = {}
   ) {
     assertValidIdentifier(tableName);
-    this.options = { softDelete: true, hasActiveStatus: true, ...options };
+    this.options = {
+      softDelete: true,
+      hasActiveStatus: true,
+      ...options,
+      tenantScoped: options.tenantScoped ?? true,
+    };
+  }
+
+  protected get isTenantScoped(): boolean {
+    return this.options.tenantScoped !== false;
   }
 
   async findById(id: string, tenantId?: string): Promise<T | null> {
@@ -39,7 +51,7 @@ export default class BaseRepository<
         `;
     const values: unknown[] = [id];
 
-    if (tenantId && this.columns.includes('tenant_id')) {
+    if (tenantId && this.isTenantScoped) {
       query += ` AND tenant_id = $${values.length + 1}`;
       values.push(tenantId);
     }
@@ -57,8 +69,8 @@ export default class BaseRepository<
 
   async find(filters: FindData, tenantId?: string): Promise<T[]> {
     const findOptions = {
-      ...this.options,
-      ...(tenantId !== undefined && this.columns.includes('tenant_id') ? { tenantId } : {}),
+      softDelete: this.options.softDelete,
+      ...(this.isTenantScoped && tenantId !== undefined ? { tenantId } : {}),
     };
     const { query, values } = buildFindQuery(this.tableName, filters, findOptions);
 
@@ -80,8 +92,8 @@ export default class BaseRepository<
     if (keys.length === 0) return null;
 
     const updateOptions = {
-      ...this.options,
-      ...(tenantId !== undefined && this.columns.includes('tenant_id') ? { tenantId } : {}),
+      softDelete: this.options.softDelete,
+      ...(this.isTenantScoped && tenantId !== undefined ? { tenantId } : {}),
     };
 
     const { query, values } = buildUpdateQuery(this.tableName, data as Record<string, unknown>, id, updateOptions);
@@ -96,7 +108,7 @@ export default class BaseRepository<
     const values: unknown[] = [id];
 
     let tenantClause = '';
-    if (tenantId && this.columns.includes('tenant_id')) {
+    if (tenantId && this.isTenantScoped) {
       tenantClause = ` AND tenant_id = $${values.length + 1}`;
       values.push(tenantId);
     }
