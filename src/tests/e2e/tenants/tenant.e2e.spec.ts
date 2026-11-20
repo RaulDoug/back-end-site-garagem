@@ -37,7 +37,7 @@ describe('E2E - /api/tenants', () => {
     await pool.end();
   });
 
-  const cnpjSeed = (Math.floor(Date.now() / 1000) % 30000000) + 50000000;
+  const cnpjSeed = (Math.floor(Date.now() / 1000) % 15000000) + 25000000;
 
   const nextValidCnpjs = () => {
     sequence++;
