@@ -1,4 +1,4 @@
-import { buildFindQuery, buildInsertQuery, buildUpdateQuery } from '#utils/query.util.js';
+import { assertValidIdentifier, buildFindQuery, buildInsertQuery, buildUpdateQuery } from '#utils/query.util.js';
 import pool from '#src/config/database.js';
 import { QueryResultRow } from 'pg';
 
@@ -28,6 +28,7 @@ export default class BaseRepository<
         protected tableName: string,
         protected options: RepositoryOptions = { softDelete: true, hasActiveStatus: true }
   ) {
+    assertValidIdentifier(tableName);
     this.options = { softDelete: true, hasActiveStatus: true, ...options };
   }
 

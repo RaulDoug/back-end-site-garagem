@@ -315,6 +315,12 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ---
 
+### `assertValidIdentifier(identifier: string): void`
+- **Arquivo:** `src/utils/query.util.ts`
+- **Descrição:** Valida identificadores SQL (nomes de tabela, colunas e campos de ordenação/filtro) contra a regex `/^[a-zA-Z_][a-zA-Z0-9_]*$/`. Utilizada internamente pelos builders de query e pelo construtor de `BaseRepository`. Lança `BadRequestError('Identificador inválido: ${identifier}')` se inválido.
+
+---
+
 ### `buildInsertQuery(tableName: string, data: Record<string, unknown>): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
 - **Descrição:** Constrói dinamicamente uma declaração SQL `INSERT INTO` parametrizada com parâmetros posicionais `$1, $2...` e cláusula `RETURNING *`. Valida preventivamente o nome da tabela e todas as colunas com `assertValidIdentifier` (`/^[a-zA-Z_][a-zA-Z0-9_]*$/`) para blindagem contra SQL Injection. Filtra automaticamente propriedades cujo valor seja `undefined` (preservando `null`, `false`, `0` e `''`); caso não reste nenhuma coluna válida, lança `BadRequestError('Nenhum campo válido informado para inserção')`.

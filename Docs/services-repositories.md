@@ -49,7 +49,7 @@ Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string,
 ### 2. Camada de Persistência (`BaseRepository<T, C>`)
 **Arquivo:** `src/repositories/base.repository.ts`
 
-- **Propriedades:** `protected columns: string[] = []`, `options: { softDelete?: boolean; hasActiveStatus?: boolean }` (ambos `true` por padrão).
+- **Propriedades:** `protected columns: string[] = []`, `options: { softDelete?: boolean; hasActiveStatus?: boolean }` (ambos `true` por padrão). O construtor valida `tableName` via `assertValidIdentifier(tableName)` antes de configurar as opções (lança `400 BadRequestError` para identificadores inválidos).
 - **`findById(id: string, tenantId?: string): Promise<T | null>`:**
   - Executa `SELECT * FROM ${this.tableName} WHERE id = $1` adicionando `AND tenant_id = $2` se `tenantId && this.columns.includes('tenant_id')` e `AND deleted_at IS NULL` se `options.softDelete`.
 - **`find(filters: FindData, tenantId?: string): Promise<T[]>`:**

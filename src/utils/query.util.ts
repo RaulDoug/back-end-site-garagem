@@ -13,7 +13,7 @@ export interface BuildFindQueryOptions {
   limit?: number;
 }
 
-function assertValidIdentifier(identifier: string): void {
+export function assertValidIdentifier(identifier: string): void {
   if (!SAFE_IDENTIFIER_REGEX.test(identifier)) {
     throw new BadRequestError(`Identificador inválido: ${identifier}`);
   }
