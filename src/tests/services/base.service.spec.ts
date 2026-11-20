@@ -8,6 +8,7 @@ vi.mock('#src/config/database.js', () => ({
 import BaseService from '#services/base.service.js';
 import BaseRepository from '#repositories/base.repository.js';
 import type { FindData } from '#repositories/base.repository.js';
+import { BadRequestError, NotFoundError } from '#src/errors/app.error.js';
 import pool from '#src/config/database.js';
 
 interface WidgetRow extends QueryResultRow {
@@ -89,5 +90,63 @@ describe('BaseService - find', () => {
     const [sql, values] = vi.mocked(pool.query).mock.calls[0];
     expect(values).toEqual(['tenant-meu']);
     expect((sql as string).match(/tenant_id/g)).toHaveLength(1);
+  });
+});
+
+describe('BaseService - update', () => {
+  let mockRepository: BaseRepository<WidgetRow>;
+  let service: BaseService<WidgetRow>;
+
+  beforeEach(() => {
+    mockRepository = {
+      find: vi.fn(),
+      findById: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as BaseRepository<WidgetRow>;
+    service = new BaseService(mockRepository);
+  });
+
+  it('UP-01: rejeita payload vazio com BadRequestError sem chamar repository', async () => {
+    await expect(service.update('id-1', {}, 't-1')).rejects.toThrow(BadRequestError);
+    await expect(service.update('id-1', {}, 't-1')).rejects.toThrow('Nenhum dado informado');
+    expect(mockRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('UP-02: rejeita payload apenas com valores undefined sem chamar repository', async () => {
+    await expect(service.update('id-1', { name: undefined }, 't-1')).rejects.toThrow(
+      BadRequestError
+    );
+    await expect(service.update('id-1', { name: undefined }, 't-1')).rejects.toThrow(
+      'Nenhum dado informado'
+    );
+    expect(mockRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('UP-03: repassa id, data e tenantId para repository.update', async () => {
+    const updatedRow: WidgetRow = { id: 'id-1', name: 'x', tenant_id: 't-1' };
+    vi.mocked(mockRepository.update).mockResolvedValue(updatedRow);
+
+    const result = await service.update('id-1', { name: 'x' }, 't-1');
+
+    expect(mockRepository.update).toHaveBeenCalledWith('id-1', { name: 'x' }, 't-1');
+    expect(result).toEqual(updatedRow);
+  });
+
+  it('UP-04: repassa undefined quando tenantId não é informado', async () => {
+    const updatedRow: WidgetRow = { id: 'id-1', name: 'x', tenant_id: 't-1' };
+    vi.mocked(mockRepository.update).mockResolvedValue(updatedRow);
+
+    const result = await service.update('id-1', { name: 'x' });
+
+    expect(mockRepository.update).toHaveBeenCalledWith('id-1', { name: 'x' }, undefined);
+    expect(result).toEqual(updatedRow);
+  });
+
+  it('UP-05: lança NotFoundError quando repository.update retorna null', async () => {
+    vi.mocked(mockRepository.update).mockResolvedValue(null);
+
+    await expect(service.update('id-1', { name: 'x' }, 't-1')).rejects.toThrow(NotFoundError);
   });
 });

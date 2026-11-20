@@ -38,8 +38,8 @@ Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string,
 #### `create(data: C): Promise<T>`
 - **Responsabilidade:** Persiste um novo registro via `repository.create(data)`. Lança `BadRequestError ('Erro ao criar registro')` se `!result`.
 
-#### `update(id: string, data: Partial<C>, tenantId?: unknown): Promise<T>`
-- **Responsabilidade:** Valida que `Object.keys(data).length > 0` (senão lança `400 BadRequestError('Nenhum dado informado')`), normaliza `tenantId` (`typeof tenantId === 'string'`) e executa `repository.update(id, data, tenantIdStr)`. Lança `NotFoundError` se `null`.
+#### `update(id: string, data: Partial<C>, tenantId?: string): Promise<T>`
+- **Responsabilidade:** Exige ao menos um campo com valor `!== undefined` em `data` (`Object.values(data).some((v) => v !== undefined)`, senão lança `400 BadRequestError('Nenhum dado informado')`) e executa `repository.update(id, data, tenantId)`. Lança `NotFoundError` se `null`.
 
 #### `delete(id: string, tenantId?: string): Promise<T>`
 - **Responsabilidade:** Executa soft-delete ou hard-delete restrito ao `tenantId`. Lança `NotFoundError` se `null`.

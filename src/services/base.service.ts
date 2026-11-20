@@ -32,13 +32,12 @@ export default class BaseService<
     return result;
   }
 
-  async update(id: string, data: Partial<C>, tenantId?: unknown): Promise<T> {
-    if (Object.keys(data).length === 0) {
+  async update(id: string, data: Partial<C>, tenantId?: string): Promise<T> {
+    if (!Object.values(data).some((v) => v !== undefined)) {
       throw new BadRequestError('Nenhum dado informado');
     }
 
-    const tenantIdStr = typeof tenantId === 'string' ? tenantId : undefined;
-    const result = await this.repository.update(id, data, tenantIdStr);
+    const result = await this.repository.update(id, data, tenantId);
 
     if (result === null) {
       throw new NotFoundError();
