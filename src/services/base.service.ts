@@ -19,20 +19,7 @@ export default class BaseService<
   }
 
   async find(filters: FindData = { filters: [] }, tenantId?: string): Promise<T[]> {
-    const effectiveFilters: FindData = {
-      ...filters,
-      filters: [...(filters?.filters || [])],
-    };
-
-    if (tenantId && !effectiveFilters.filters.some((f) => f.field === 'tenant_id')) {
-      effectiveFilters.filters.push({
-        field: 'tenant_id',
-        operator: '=',
-        value: tenantId,
-      });
-    }
-
-    return await this.repository.find(effectiveFilters);
+    return await this.repository.find(filters, tenantId);
   }
 
   async create(data: C): Promise<T> {

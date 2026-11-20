@@ -34,7 +34,7 @@ describe('UserService.find', () => {
     const resultado = await userService.find(filters);
 
     expect(mockUserRepository.find).toHaveBeenCalledTimes(1);
-    expect(mockUserRepository.find).toHaveBeenCalledWith(filters);
+    expect(mockUserRepository.find).toHaveBeenCalledWith(filters, undefined);
     expect(resultado).toEqual([safeUser, otherSafeUser]);
   });
 
@@ -46,7 +46,7 @@ describe('UserService.find', () => {
 
     expect(resultado).toEqual([]);
     expect(resultado).toHaveLength(0);
-    expect(mockUserRepository.find).toHaveBeenCalledWith(filters);
+    expect(mockUserRepository.find).toHaveBeenCalledWith(filters, undefined);
   });
 
   it('deve remover password_hash de todos os usuários retornados', async () => {
@@ -64,5 +64,21 @@ describe('UserService.find', () => {
       expect(Object.keys(user)).not.toContain('password_hash');
     });
     expect(resultado).toEqual([safeUser, otherSafeUser]);
+  });
+
+  it('repassa tenantId ao userRepository.find e remove password_hash', async () => {
+    mockUserRepository.find.mockResolvedValue([
+      buildUser(),
+      buildUser({ ...otherSafeUser, password_hash: PASSWORD_HASH }),
+    ]);
+
+    const filters: FindData = { filters: [{ field: 'role', operator: '=', value: 'ADMIN' }] };
+    const resultado = await userService.find(filters, 't-A');
+
+    expect(mockUserRepository.find).toHaveBeenCalledWith(filters, 't-A');
+    expect(resultado).toHaveLength(2);
+    resultado.forEach((user) => {
+      expect(user).not.toHaveProperty('password_hash');
+    });
   });
 });

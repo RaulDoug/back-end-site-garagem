@@ -33,7 +33,7 @@ Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string,
 - **Exceções (`AppError`):** `404 Not Found` - `NotFoundError ('Registro não encontrado')` quando `result === null`.
 
 #### `find(filters: FindData = { filters: [] }, tenantId?: string): Promise<T[]>`
-- **Responsabilidade:** Cria cópia imutável dos filtros e injeta automaticamente `{ field: 'tenant_id', operator: '=', value: tenantId }` caso `tenantId` seja informado e não exista filtro prévio de `tenant_id`.
+- **Responsabilidade:** Delega diretamente para `repository.find(filters, tenantId)` sem inspecionar nem mutar `filters` (o isolamento por `tenantId` do contexto é aplicado na camada de repositório/query builder, prevalecendo sobre eventual filtro `tenant_id` do chamador).
 
 #### `create(data: C): Promise<T>`
 - **Responsabilidade:** Persiste um novo registro via `repository.create(data)`. Lança `BadRequestError ('Erro ao criar registro')` se `!result`.
@@ -136,7 +136,7 @@ Gerencia regras de credenciamento multi-tenant, vínculo opcional a filial (`sto
 - Consulta `userRepository.findById(id, tenantId)` (`404` `'Usuário inexistente.'`), removendo `password_hash`.
 
 #### `find(filters: FindData = { filters: [] }, tenantId?: string): Promise<Omit<User, 'password_hash'>[]>`
-- Injeta filtro `tenant_id = tenantId` quando informado e remove `password_hash` de todos os itens.
+- Delega `(filters, tenantId)` diretamente para `userRepository.find(filters, tenantId)` (sem injetar filtro `tenant_id` no service) e remove `password_hash` de todos os itens.
 
 #### `update(id: string, data: UpdateUserBody, tenantId?: string): Promise<Omit<User, 'password_hash'>>`
 - Valida existência no tenant (`404` `'Usuário inexistente.'`), verifica duplicidade de e-mail se alterado (`409` `'E-mail já em uso por outro usuário'`), valida `data.store_id` no tenant via `storeRepo.findByIdAndTenant` (`404` `'Filial informada não encontrada nesta empresa'`), atualiza via `userRepository.update(id, data, tenantId)` (`400` se vazio) e oculta `password_hash`.

@@ -71,9 +71,7 @@ describe('ModelService', () => {
       const filters = { filters: [] };
       const result = await modelService.find(filters, 'tenant-1');
 
-      expect(modelRepository.find).toHaveBeenCalledWith({
-        filters: [{ field: 'tenant_id', operator: '=', value: 'tenant-1' }],
-      });
+      expect(modelRepository.find).toHaveBeenCalledWith(filters, 'tenant-1');
       expect(result).toEqual([mockModel]);
     });
   });

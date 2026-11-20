@@ -114,9 +114,7 @@ describe('StoreService', () => {
 
       const result = await storeService.find({ filters: [] }, 'tenant-123');
 
-      expect(storeRepository.find).toHaveBeenCalledWith({
-        filters: [{ field: 'tenant_id', operator: '=', value: 'tenant-123' }],
-      });
+      expect(storeRepository.find).toHaveBeenCalledWith({ filters: [] }, 'tenant-123');
       expect(result).toEqual([mockStore]);
     });
   });

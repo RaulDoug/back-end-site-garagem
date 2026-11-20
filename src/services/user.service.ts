@@ -103,20 +103,7 @@ export default class UserService {
   }
 
   async find(filters: FindData = { filters: [] }, tenantId?: string): Promise<Omit<User, 'password_hash'>[]> {
-    const effectiveFilters: FindData = {
-      ...filters,
-      filters: [...(filters?.filters || [])],
-    };
-
-    if (tenantId && !effectiveFilters.filters.some((f) => f.field === 'tenant_id')) {
-      effectiveFilters.filters.push({
-        field: 'tenant_id',
-        operator: '=',
-        value: tenantId,
-      });
-    }
-
-    const users = await this.userRepository.find(effectiveFilters);
+    const users = await this.userRepository.find(filters, tenantId);
 
     return users.map((user) => {
       const { password_hash, ...userWithoutPassword } = user; // eslint-disable-line
