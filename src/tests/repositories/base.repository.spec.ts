@@ -123,3 +123,113 @@ describe('BaseRepository - tenantScoped', () => {
     expect(values).toEqual(['id-1']);
   });
 });
+
+describe('BaseRepository - tenantId inválido', () => {
+  class ScopedRepo extends BaseRepository<Row> {}
+  class RootRepo extends BaseRepository<Row> {}
+  class HardRepo extends BaseRepository<Row> {}
+
+  const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+  let scopedRepo: ScopedRepo;
+  let rootRepo: RootRepo;
+  let hardRepo: HardRepo;
+
+  beforeEach(() => {
+    vi.mocked(pool.query).mockReset();
+    vi.mocked(pool.query).mockResolvedValue({ rows: [] } as never);
+    scopedRepo = new ScopedRepo('widgets');
+    rootRepo = new RootRepo('roots', { tenantScoped: false });
+    hardRepo = new HardRepo('widgets', { softDelete: false });
+  });
+
+  it('TI-01: findById com string vazia rejeita BadRequestError sem chamar pool.query', async () => {
+    await expect(scopedRepo.findById('id-1', '')).rejects.toThrow(BadRequestError);
+    await expect(scopedRepo.findById('id-1', '')).rejects.toThrow(
+      'Identificador de tenant inválido'
+    );
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  it('TI-02: findById com espaços rejeita BadRequestError sem chamar pool.query', async () => {
+    await expect(scopedRepo.findById('id-1', '   ')).rejects.toThrow(BadRequestError);
+    await expect(scopedRepo.findById('id-1', '   ')).rejects.toThrow(
+      'Identificador de tenant inválido'
+    );
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  it('TI-03: findById com tipo inválido rejeita BadRequestError sem chamar pool.query', async () => {
+    await expect(scopedRepo.findById('id-1', 123 as unknown as string)).rejects.toThrow(
+      BadRequestError
+    );
+    await expect(scopedRepo.findById('id-1', 123 as unknown as string)).rejects.toThrow(
+      'Identificador de tenant inválido'
+    );
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  it('TI-04: delete (soft e hard) com string vazia rejeita BadRequestError sem chamar pool.query', async () => {
+    await expect(scopedRepo.delete('id-1', '')).rejects.toThrow(BadRequestError);
+    await expect(scopedRepo.delete('id-1', '')).rejects.toThrow(
+      'Identificador de tenant inválido'
+    );
+    await expect(hardRepo.delete('id-1', '')).rejects.toThrow(BadRequestError);
+    await expect(hardRepo.delete('id-1', '')).rejects.toThrow(
+      'Identificador de tenant inválido'
+    );
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  it('TI-05: findById sem tenant (rota pública) executa sem cláusula tenant_id', async () => {
+    await scopedRepo.findById('id-1');
+
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    const [sql, values] = vi.mocked(pool.query).mock.calls[0];
+    expect(normalize(sql as string)).toBe(
+      'SELECT * FROM widgets WHERE id = $1 AND deleted_at IS NULL LIMIT 1;'
+    );
+    expect(values).toEqual(['id-1']);
+  });
+
+  it('TI-06: findById com tenantId válido gera cláusula AND tenant_id = $2', async () => {
+    await scopedRepo.findById('id-1', 't-1');
+
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    const [sql, values] = vi.mocked(pool.query).mock.calls[0];
+    expect(normalize(sql as string)).toBe(
+      'SELECT * FROM widgets WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1;'
+    );
+    expect(values).toEqual(['id-1', 't-1']);
+  });
+
+  it('TI-07: delete (soft) com tenantId válido gera UPDATE com AND tenant_id = $2', async () => {
+    await scopedRepo.delete('id-1', 't-1');
+
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    const [sql, values] = vi.mocked(pool.query).mock.calls[0];
+    expect(normalize(sql as string)).toBe(
+      'UPDATE widgets SET deleted_at = NOW(), is_active = false WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL RETURNING *;'
+    );
+    expect(values).toEqual(['id-1', 't-1']);
+  });
+
+  it('TI-08: delete (hard) com tenantId válido gera DELETE com AND tenant_id = $2', async () => {
+    await hardRepo.delete('id-1', 't-1');
+
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    const [sql, values] = vi.mocked(pool.query).mock.calls[0];
+    expect(normalize(sql as string)).toBe(
+      'DELETE FROM widgets WHERE id = $1 AND tenant_id = $2 RETURNING *;'
+    );
+    expect(values).toEqual(['id-1', 't-1']);
+  });
+
+  it('TI-09: RootRepo.findById com string vazia não rejeita e não inclui tenant_id', async () => {
+    await expect(rootRepo.findById('id-1', '')).resolves.toBeNull();
+
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    const [sql, values] = vi.mocked(pool.query).mock.calls[0];
+    expect(normalize(sql as string)).not.toContain('tenant_id');
+    expect(values).toEqual(['id-1']);
+  });
+});

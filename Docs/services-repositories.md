@@ -50,8 +50,9 @@ Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string,
 **Arquivo:** `src/repositories/base.repository.ts`
 
 - **Propriedades:** `protected columns: string[] = []` (usado apenas para projeção e documentação; não decide mais o isolamento por tenant), `options: { softDelete?: boolean; hasActiveStatus?: boolean; tenantScoped?: boolean }` (todos `true` por padrão; `tenants` é o único repositório com `tenantScoped: false`) e getter `protected get isTenantScoped(): boolean` (`options.tenantScoped !== false`). O construtor valida `tableName` via `assertValidIdentifier(tableName)` antes de configurar as opções (lança `400 BadRequestError` para identificadores inválidos).
+- **`buildTenantClause(tenantId, nextParamIndex)`:** Helper protegido que retorna `{ clause: '', values: [] }` quando `!isTenantScoped` ou `tenantId === undefined`, lança `400 BadRequestError('Identificador de tenant inválido')` para valores não-string ou strings vazias/espaços, e retorna `{ clause: ' AND tenant_id = $n', values: [tenantId] }` caso contrário.
 - **`findById(id: string, tenantId?: string): Promise<T | null>`:**
-  - Executa `SELECT * FROM ${this.tableName} WHERE id = $1` adicionando `AND tenant_id = $2` se `tenantId && this.isTenantScoped` e `AND deleted_at IS NULL` se `options.softDelete`.
+  - Executa `SELECT * FROM ${this.tableName} WHERE id = $1` aplicando `buildTenantClause(tenantId, 2)` (rejeita `tenantId` em branco com `400` quando `isTenantScoped`) e `AND deleted_at IS NULL` se `options.softDelete`.
 - **`find(filters: FindData, tenantId?: string): Promise<T[]>`:**
   - Gera SQL via `buildFindQuery(this.tableName, filters, findOptions)` (repassa `{ softDelete: this.options.softDelete }` e `tenantId` quando `this.isTenantScoped && tenantId !== undefined`; suporta `=`, `>=`, `<=`, `ILIKE`, `IN`/`ANY`, `includeDeleted`, `columns`, `orderBy` e `limit`).
 - **`create(data: C): Promise<T>`:**
@@ -59,7 +60,7 @@ Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string,
 - **`update(id: string, data: Partial<C>, tenantId?: string): Promise<T | null>`:**
   - Retorna `null` se `data` estiver vazio. Repassa `{ softDelete: this.options.softDelete }` e `tenantId` (se `this.isTenantScoped && tenantId !== undefined`) para `buildUpdateQuery` (que bloqueia `id`, `tenant_id` e `created_at` e filtra `AND tenant_id = $n` e `AND deleted_at IS NULL`).
 - **`delete(id: string, tenantId?: string): Promise<T | null>`:**
-  - Inclui `AND tenant_id = $2` quando `tenantId && this.isTenantScoped`.
+  - Aplica `buildTenantClause(tenantId, 2)` (rejeita `tenantId` em branco com `400` quando `isTenantScoped`).
   - Se `softDelete`: `UPDATE ${tableName} SET deleted_at = NOW() [, is_active = false] WHERE id = $1... AND deleted_at IS NULL RETURNING *;`.
   - Se `!softDelete`: `DELETE FROM ${tableName} WHERE id = $1... RETURNING *;`.
 
@@ -315,7 +316,7 @@ Módulo central do sistema: controle multi-tenant (`tenantId`) e multi-store (`u
 ### 2. Camada de Persistência (`VehicleRepository`)
 **Arquivo:** `src/repositories/vehicle.repository.ts` (`softDelete: true, hasActiveStatus: false`)
 
-- **`delete(id, tenantId?)`:** `UPDATE vehicles SET deleted_at = NOW(), status = 'INATIVO', updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL [AND tenant_id = $2] RETURNING *;`.
+- **`delete(id, tenantId?)`:** `UPDATE vehicles SET deleted_at = NOW(), status = 'INATIVO', updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL [AND tenant_id = $2] RETURNING *;`. Utiliza `buildTenantClause` da base (lança `400 'Identificador de tenant inválido'` para `tenantId` em branco).
 - **`findByPlate(plate, tenantId?)`:** Consulta placa ativa filtrada por `tenant_id` quando fornecido.
 - **`createWithFeatures(data, featureIds)`:** Transação `BEGIN ... COMMIT/ROLLBACK` inserindo em `vehicles` e `vehicle_features`.
 - **`updateWithFeatures(id, data, featureIds?, tenantId?)`:** Transação atualizando `vehicles` com `{ tenantId }` no `buildUpdateQuery` e substituindo `vehicle_features` caso `featureIds !== undefined`.

@@ -182,18 +182,14 @@ export class VehicleRepository extends BaseRepository<Vehicle, CreateVehicleData
   }
 
   override async delete(id: string, tenantId?: string): Promise<Vehicle | null> {
-    let query = `
+    const { clause: tenantClause, values: tenantValues } = this.buildTenantClause(tenantId, 2);
+    const query = `
       UPDATE vehicles
       SET deleted_at = NOW(), status = 'INATIVO', updated_at = NOW()
-      WHERE id = $1 AND deleted_at IS NULL
+      WHERE id = $1 AND deleted_at IS NULL${tenantClause}
+      RETURNING *;
     `;
-    const params: unknown[] = [id];
-    if (tenantId) {
-      query += ' AND tenant_id = $2';
-      params.push(tenantId);
-    }
-    query += ' RETURNING *;';
-    const result = await pool.query<Vehicle>(query, params);
+    const result = await pool.query<Vehicle>(query, [id, ...tenantValues]);
     return result.rows[0] || null;
   }
 

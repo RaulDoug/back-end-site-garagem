@@ -1,4 +1,5 @@
 import { assertValidIdentifier, buildFindQuery, buildInsertQuery, buildUpdateQuery } from '#utils/query.util.js';
+import { BadRequestError } from '#src/errors/app.error.js';
 import pool from '#src/config/database.js';
 import { QueryResultRow } from 'pg';
 
@@ -44,6 +45,22 @@ export default class BaseRepository<
     return this.options.tenantScoped !== false;
   }
 
+  protected buildTenantClause(
+    tenantId: string | undefined,
+    nextParamIndex: number
+  ): { clause: string; values: unknown[] } {
+    if (!this.isTenantScoped || tenantId === undefined) {
+      return { clause: '', values: [] };
+    }
+    if (typeof tenantId !== 'string' || tenantId.trim() === '') {
+      throw new BadRequestError('Identificador de tenant inválido');
+    }
+    return {
+      clause: ` AND tenant_id = $${nextParamIndex}`,
+      values: [tenantId],
+    };
+  }
+
   async findById(id: string, tenantId?: string): Promise<T | null> {
     let query = `
             SELECT * FROM ${this.tableName} 
@@ -51,10 +68,9 @@ export default class BaseRepository<
         `;
     const values: unknown[] = [id];
 
-    if (tenantId && this.isTenantScoped) {
-      query += ` AND tenant_id = $${values.length + 1}`;
-      values.push(tenantId);
-    }
+    const tenantClause = this.buildTenantClause(tenantId, values.length + 1);
+    query += tenantClause.clause;
+    values.push(...tenantClause.values);
 
     if (this.options.softDelete) {
       query += ' AND deleted_at IS NULL LIMIT 1;';
@@ -107,11 +123,11 @@ export default class BaseRepository<
     let query: string;
     const values: unknown[] = [id];
 
-    let tenantClause = '';
-    if (tenantId && this.isTenantScoped) {
-      tenantClause = ` AND tenant_id = $${values.length + 1}`;
-      values.push(tenantId);
-    }
+    const { clause: tenantClause, values: tenantValues } = this.buildTenantClause(
+      tenantId,
+      values.length + 1
+    );
+    values.push(...tenantValues);
 
     if (this.options.softDelete) {
       const activeClause = this.options.hasActiveStatus ? ', is_active = false' : '';
