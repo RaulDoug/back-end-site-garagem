@@ -37,9 +37,11 @@ describe('E2E - /api/tenants', () => {
     await pool.end();
   });
 
+  const cnpjSeed = (Math.floor(Date.now() / 1000) % 30000000) + 50000000;
+
   const nextValidCnpjs = () => {
     sequence++;
-    const baseNum = 10000000 + sequence;
+    const baseNum = cnpjSeed + sequence * 10;
     const calcCnpj = (base: number) => {
       const s = String(base).padStart(8, '0') + '0001';
       const w1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
