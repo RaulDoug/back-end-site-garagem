@@ -1,7 +1,7 @@
 import { assertValidIdentifier, buildFindQuery, buildInsertQuery, buildUpdateQuery } from '#utils/query.util.js';
 import { BadRequestError } from '#src/errors/app.error.js';
-import pool from '#src/config/database.js';
-import { QueryResultRow } from 'pg';
+import defaultPool from '#src/config/database.js';
+import type { Pool, QueryResultRow } from 'pg';
 
 interface RepositoryOptions {
     softDelete?: boolean;
@@ -30,7 +30,8 @@ export default class BaseRepository<
 
   constructor(
         protected tableName: string,
-        protected options: RepositoryOptions = {}
+        protected options: RepositoryOptions = {},
+        protected pool: Pool = defaultPool
   ) {
     assertValidIdentifier(tableName);
     this.options = {
@@ -78,7 +79,7 @@ export default class BaseRepository<
       query += ' LIMIT 1;';
     }
 
-    const result = await pool.query<T>(query, values);
+    const result = await this.pool.query<T>(query, values);
 
     return result.rows[0] || null;
   }
@@ -90,7 +91,7 @@ export default class BaseRepository<
     };
     const { query, values } = buildFindQuery(this.tableName, filters, findOptions);
 
-    const result = await pool.query<T>(query, values);
+    const result = await this.pool.query<T>(query, values);
 
     return result.rows;
   }
@@ -98,7 +99,7 @@ export default class BaseRepository<
   async create(data: C): Promise<T> {
     const { query, values } = buildInsertQuery(this.tableName, data as Record<string, unknown>);
 
-    const result = await pool.query<T>(query, values);
+    const result = await this.pool.query<T>(query, values);
 
     return result.rows[0];
   }
@@ -114,7 +115,7 @@ export default class BaseRepository<
 
     const { query, values } = buildUpdateQuery(this.tableName, data as Record<string, unknown>, id, updateOptions);
 
-    const result = await pool.query<T>(query, values);
+    const result = await this.pool.query<T>(query, values);
 
     return result.rows[0] || null;
   }
@@ -142,7 +143,7 @@ export default class BaseRepository<
       query = `DELETE FROM ${this.tableName} WHERE id = $1${tenantClause} RETURNING *;`;
     }
 
-    const result = await pool.query<T>(query, values);
+    const result = await this.pool.query<T>(query, values);
 
     return result.rows[0] || null;
   }

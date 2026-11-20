@@ -24,6 +24,7 @@ export interface CreateTenantData {
 export type UpdateTenantData = Partial<CreateTenantData>;
 
 export interface OnboardTenantDbInput {
+  is_multi_store?: boolean;
   tenant: CreateTenantData;
   store: {
     name: string;
@@ -42,17 +43,12 @@ export interface OnboardTenantDbInput {
     email: string;
     password_hash: string;
     phone: string;
-    cpf?: string;
-    birth_date?: string | null;
   };
 }
 
 export class TenantRepository extends BaseRepository<Tenant, CreateTenantData> {
-  protected pool: Pool;
-
   constructor(customPool: Pool = pool) {
-    super('tenants', { softDelete: true, hasActiveStatus: true, tenantScoped: false });
-    this.pool = customPool;
+    super('tenants', { softDelete: true, hasActiveStatus: true, tenantScoped: false }, customPool);
   }
 
   async findByCNPJ(cnpj: string): Promise<Tenant | null> {
@@ -117,9 +113,10 @@ export class TenantRepository extends BaseRepository<Tenant, CreateTenantData> {
         VALUES ($1, $2, $3, $4, $5, $6, 'ADMIN', true)
         RETURNING id, tenant_id, store_id, name, email, phone, role, commission_rates, is_active, created_at, deleted_at;
       `;
+      const adminStoreId = input.is_multi_store ? null : store.id;
       const adminRes = await client.query<Omit<User, 'password_hash'>>(adminQuery, [
         tenant.id,
-        store.id,
+        adminStoreId,
         input.admin.name,
         input.admin.email,
         input.admin.password_hash,
@@ -130,7 +127,11 @@ export class TenantRepository extends BaseRepository<Tenant, CreateTenantData> {
       await client.query('COMMIT');
       return { tenant, store, admin };
     } catch (error) {
-      await client.query('ROLLBACK');
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        /* ignore rollback error */
+      }
       throw error;
     } finally {
       client.release();
