@@ -1,4 +1,4 @@
-import { FindData } from '#repositories/base.repository.js';
+import type { FindData } from '#repositories/base.repository.js';
 import { BadRequestError } from '#src/errors/app.error.js';
 
 const SAFE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -100,16 +100,14 @@ export function buildFindQuery(
     if (typeof options.tenantId !== 'string' || options.tenantId.trim() === '') {
       throw new BadRequestError('Identificador de tenant inválido');
     }
-    const hasTenantFilter = filterArray.some(
-      (f) => f.field === 'tenant_id' && f.value !== undefined && f.value !== null && String(f.value).trim() !== ''
-    );
-    if (!hasTenantFilter) {
-      values.push(options.tenantId);
-      conditions.push(`tenant_id = $${values.length}`);
-    }
+    values.push(options.tenantId);
+    conditions.push(`tenant_id = $${values.length}`);
   }
 
   for (const filter of filterArray) {
+    if (options?.tenantId !== undefined && filter.field === 'tenant_id') {
+      continue;
+    }
     if (
       filter.value === undefined ||
       filter.value === null ||

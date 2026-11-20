@@ -242,3 +242,50 @@ describe('query.util - buildFindQuery (segurança e filtros)', () => {
     ).toThrow('O limite deve ser um número inteiro positivo');
   });
 });
+
+describe('query.util - buildFindQuery (tenant do contexto prevalece)', () => {
+  it('descarta filtro tenant_id do chamador e aplica options.tenantId', () => {
+    const result = buildFindQuery(
+      'stores',
+      {
+        filters: [
+          { field: 'tenant_id', operator: '=', value: 'tenant-vitima' },
+          { field: 'name', operator: '=', value: 'Matriz' },
+        ],
+      },
+      { tenantId: 'tenant-meu' }
+    );
+
+    expect(result.query).toBe(
+      'SELECT * FROM stores WHERE deleted_at IS NULL AND tenant_id = $1 AND name = $2'
+    );
+    expect(result.values).toEqual(['tenant-meu', 'Matriz']);
+  });
+
+  it('descarta filtro tenant_id com operador IN do chamador', () => {
+    const result = buildFindQuery(
+      'stores',
+      {
+        filters: [{ field: 'tenant_id', operator: 'IN', value: ['a', 'b'] }],
+      },
+      { tenantId: 'tenant-meu' }
+    );
+
+    expect(result.query).toBe(
+      'SELECT * FROM stores WHERE deleted_at IS NULL AND tenant_id = $1'
+    );
+    expect(result.values).toEqual(['tenant-meu']);
+    expect(result.query.match(/tenant_id = \$1/g)).toHaveLength(1);
+  });
+
+  it('mantém filtro tenant_id do chamador quando options.tenantId é undefined', () => {
+    const result = buildFindQuery('stores', {
+      filters: [{ field: 'tenant_id', operator: '=', value: 'tenant-x' }],
+    });
+
+    expect(result.query).toBe(
+      'SELECT * FROM stores WHERE deleted_at IS NULL AND tenant_id = $1'
+    );
+    expect(result.values).toEqual(['tenant-x']);
+  });
+});

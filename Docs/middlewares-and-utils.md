@@ -361,13 +361,13 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `buildFindQuery(tableName: string, filters: FindData, options?: BuildFindQueryOptions): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Monta a query SQL `SELECT` com controle de `deleted_at IS NULL`, isolamento opcional de `tenant_id`, projeção explícita de `columns`, ordenação (`orderBy`), paginação (`limit`) e placeholders sequenciais. Todos os identificadores de tabela, colunas e campos são blindados com `assertValidIdentifier`. Os operadores de busca são validados em runtime contra allowlist estrita `ALLOWED_FIND_OPERATORS` (`=`, `>=`, `<=`, `ILIKE`, `IN`). Para o operador `IN`, exige obrigatoriamente um array de valores (lançando `BadRequestError` caso contrário) e monta `${field} = ANY($n)`.
+- **Descrição:** Monta a query SQL `SELECT` com controle de `deleted_at IS NULL`, isolamento opcional de `tenant_id`, projeção explícita de `columns`, ordenação (`orderBy`), paginação (`limit`) e placeholders sequenciais. Quando `options.tenantId` é informado, o `tenantId` do contexto sempre prevalece e qualquer filtro `tenant_id` enviado pelo chamador em `filters` é descartado. Todos os identificadores de tabela, colunas e campos são blindados com `assertValidIdentifier`. Os operadores de busca são validados em runtime contra allowlist estrita `ALLOWED_FIND_OPERATORS` (`=`, `>=`, `<=`, `ILIKE`, `IN`). Para o operador `IN`, exige obrigatoriamente um array de valores (lançando `BadRequestError` caso contrário) e monta `${field} = ANY($n)`.
 - **Assinatura & Parâmetros:**
   - `tableName` (`string`): Nome da tabela.
   - `filters` (`FindData`): Filtros posicionais (`filters: Filter[]`, `includeDeleted?: boolean`).
   - `options` (`BuildFindQueryOptions`, opcional):
     - `softDelete?: boolean`: Flag de soft-delete (padrão `true`).
-    - `tenantId?: string`: Identificador do tenant para cláusula `tenant_id = $n` (rejeita strings vazias/espaços).
+    - `tenantId?: string`: Identificador do tenant para cláusula `tenant_id = $n` (rejeita strings vazias/espaços; prevalece sobre qualquer filtro `tenant_id` do chamador, que é descartado; quando `undefined`, preserva eventual filtro `tenant_id` do chamador).
     - `columns?: string[]`: Projeção de colunas específicas (padrão `*`, rejeita array vazio e identificadores inválidos).
     - `orderBy?: { field: string; direction?: 'ASC' | 'DESC' }`: Ordenação segura.
     - `limit?: number`: Limite de registros (exige inteiro positivo parametrizado).
