@@ -57,6 +57,7 @@ Gerenciamento de empresas no modelo Multi-Tenant hierárquico, permitindo onboar
 
 | Objeto | Campo | Tipo | Obrigatório | Descrição / Restrição |
 | :--- | :--- | :--- | :--- | :--- |
+| — | `is_multi_store` | `boolean` | Não | Padrão `false`: define se o admin inicial nasce com `store_id: null` para atuar em todas as lojas da rede ou vinculado à matriz |
 | `tenant` | `corporate_name` | `string` | Sim | Razão social (2 a 255 chars) |
 | `tenant` | `trade_name` | `string` | Sim | Nome fantasia (2 a 255 chars) |
 | `tenant` | `cnpj` | `string` | Sim | CNPJ válido com dígitos verificadores (14 a 18 chars) |
@@ -70,9 +71,7 @@ Gerenciamento de empresas no modelo Multi-Tenant hierárquico, permitindo onboar
 | `admin` | `name` | `string` | Sim | Nome completo do gestor master (2 a 255 chars) |
 | `admin` | `email` | `string` | Sim | E-mail corporativo (normalizado para lowercase) |
 | `admin` | `password` | `string` | Sim | Senha com no mínimo 8 caracteres |
-| `admin` | `phone` | `string` | Sim | Telefone de contato (10 a 20 chars) |
-| `admin` | `cpf` | `string` | Sim | CPF válido brasileiro (dígitos verificadores) |
-| `admin` | `birth_date` | `string \| null` | Não | Data de nascimento opcional |
+| `admin` | `phone` | `string` | Sim | Telefone celular no padrão brasileiro (até 15 chars) |
 
 ### Respostas
 - **`201 Created`**:
@@ -155,7 +154,7 @@ Gerenciamento de empresas no modelo Multi-Tenant hierárquico, permitindo onboar
 - **Middlewares / Autenticação:** `authenticateJWT`, `authorizeRoles('ADMIN')`, `validate(updateTenantRouteSchema)`.
 
 ### Parâmetros & Payload
-- **Body (`req.body`):** `corporate_name` (opcional), `trade_name` (opcional), `cnpj` (opcional, validado), `is_active` (opcional).
+- **Body (`req.body`):** `corporate_name` (opcional), `trade_name` (opcional), `cnpj` (opcional, validado).
 
 ### Respostas
 - **`200 OK`**:

@@ -79,10 +79,10 @@ Gestão da entidade raiz da arquitetura Multi-Tenant hierárquica e seu fluxo de
 - **Operação:** `SELECT * FROM tenants WHERE (cnpj = $1 OR regexp_replace(cnpj, '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g')) AND deleted_at IS NULL LIMIT 1;`.
 
 #### `onboardTenant(input: OnboardTenantDbInput): Promise<{ tenant: Tenant; store: Store; admin: Omit<User, 'password_hash'> }>`
-- **Operação:** Transação ACID (`pool.connect()`, `BEGIN`, `COMMIT`, `ROLLBACK` no `catch`, `client.release()` no `finally`) criando atomicamente:
+- **Operação:** Transação ACID (`pool.connect()`, `BEGIN`, `COMMIT`, `ROLLBACK` protegido por `try/catch` no `catch`, `client.release()` no `finally`) criando atomicamente:
   1. Registro em `tenants` (`corporate_name`, `trade_name`, `cnpj`, `is_active`).
   2. Registro em `stores` vinculado a `tenant.id` com `is_active = true`.
-  3. Registro em `users` com `tenant_id = tenant.id`, `store_id = store.id`, `role = 'ADMIN'`, `is_active = true`, retornando colunas sem `password_hash`.
+  3. Registro em `users` com `tenant_id = tenant.id`, `store_id` (`null` quando `input.is_multi_store === true` ou `store.id` quando `false`/omitido), `role = 'ADMIN'`, `is_active = true`, retornando colunas sem `password_hash`.
 
 ---
 
@@ -95,15 +95,16 @@ Gestão da entidade raiz da arquitetura Multi-Tenant hierárquica e seu fluxo de
   2. Verifica colisão de CNPJ do tenant (`repository.findByCNPJ`) -> `AppError('CNPJ da empresa já está em uso', 409)`.
   3. Sanitiza CNPJ da loja (`replace(/\D/g, '')`) e verifica colisão (`storeRepo.findByCNPJ`) -> `AppError('CNPJ da loja já está em uso', 409)`.
   4. Gera hash da senha com `hashPassword(validated.admin.password)`.
-  5. Executa `repository.onboardTenant(...)`.
-  6. Gera token JWT (`generateToken({ id: admin.id, email: admin.email, role: admin.role, tenantId: tenant.id, storeId: store.id })`).
+  5. Executa `repository.onboardTenant(...)` repassando `is_multi_store: validated.is_multi_store` e admin higienizado (sem `cpf` ou `birth_date`).
+  6. Gera token JWT (`generateToken({ id: admin.id, email: admin.email, role: admin.role, tenantId: tenant.id, storeId: admin.store_id ?? null })`).
   7. Retorna `{ tenant, store, admin, token }`.
 
 #### `getById(tenantId: string): Promise<Tenant>`
 - Busca em `repository.findById(tenantId)`. Lança `NotFoundError('Empresa não encontrada')` se não existir.
 
 #### `update(tenantId: string, data: unknown): Promise<Tenant>`
-- Valida `data` com `updateTenantSchema`, verifica existência com `getById(tenantId)`, checa colisão de CNPJ se alterado (`409` `'CNPJ da empresa já está em uso'`) e persiste via `repository.update(tenantId, validated)`.
+- Valida `data` com `updateTenantSchema`. Se nenhum campo for informado (`!Object.values(validated).some((v) => v !== undefined)`), lança `BadRequestError('Nenhum dado informado')`.
+- Verifica existência com `getById(tenantId)`, checa colisão de CNPJ se alterado (`409` `'CNPJ da empresa já está em uso'`) e persiste via `repository.update(tenantId, validated)`.
 
 ---
 

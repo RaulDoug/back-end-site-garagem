@@ -2090,8 +2090,6 @@ components:
           type: string
           minLength: 14
           maxLength: 18
-        is_active:
-          type: boolean
 
     TenantSingleResponse:
       type: object
@@ -2108,6 +2106,9 @@ components:
         - store
         - admin
       properties:
+        is_multi_store:
+          type: boolean
+          default: false
         tenant:
           type: object
           required:
@@ -2139,7 +2140,6 @@ components:
             - email
             - password
             - phone
-            - cpf
           properties:
             name:
               type: string
@@ -2154,13 +2154,8 @@ components:
               maxLength: 255
             phone:
               type: string
-              minLength: 10
-              maxLength: 20
-            cpf:
-              type: string
-            birth_date:
-              type: string
-              nullable: true
+              pattern: '^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$'
+              maxLength: 15
 
     OnboardTenantResponse:
       type: object
@@ -2462,6 +2457,7 @@ components:
         complement:
           type: string
           maxLength: 100
+          nullable: true
 
     UpdateStoreBody:
       type: object

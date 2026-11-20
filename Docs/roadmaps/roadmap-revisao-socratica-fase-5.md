@@ -38,7 +38,7 @@
   - **Escopo**: `buildUpdateQuery` com filtro por `tenant_id` no `WHERE` e bloqueio de mutação nas colunas `id`, `tenant_id` e `created_at`.
   - **Foco no Mental Debugging**: Rastreie os índices dos placeholders `$1, $2, $3...` quando `data` contém `tenant_id` malicioso e `options.tenantId` está ativo.
 
-- [ ] **`[MODIFICAÇÃO ALTA]`** [base.repository.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/repositories/base.repository.ts) + [base.service.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/services/base.service.ts)
+- [x] **`[MODIFICAÇÃO ALTA]`** [base.repository.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/repositories/base.repository.ts) + [base.service.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/services/base.service.ts)
   - **Escopo**: Repasse opcional de `tenantId` em `find`, `findById`, `update` e `delete`, condicionado a `this.columns.includes('tenant_id')`.
   - **Foco no Trade-off**: Por que `find` injeta `tenant_id` no array de filtros em `BaseService` enquanto `findById`/`update`/`delete` verificam `this.columns.includes('tenant_id')`? O que acontece se uma subclasse esquecer de declarar `columns`?
 
@@ -48,19 +48,19 @@
 
 *Objetivo: Validar o fluxo completo de criação atômica de uma nova empresa no SaaS (Empresa + Matriz + Admin).*
 
-- [ ] **`[NOVO]`** [tenant.schema.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/schemas/tenant.schema.ts)
+- [x] **`[NOVO]`** [tenant.schema.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/schemas/tenant.schema.ts)
   - **Escopo**: Validadores de dígitos verificadores (`validateCNPJ`, `validateCPF`) e composição de `onboardTenantSchema`.
   - **Foco no Edge Case**: Observe o `storeInputSchema` com `z.union` — por que ele aceita formatos diferentes e quais campos são obrigatórios no onboarding?
 
-- [ ] **`[NOVO]`** [tenant.repository.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/repositories/tenant.repository.ts)
+- [x] **`[NOVO]`** [tenant.repository.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/repositories/tenant.repository.ts)
   - **Escopo**: `findByCNPJ` (normalizando pontuação via `regexp_replace`) e `onboardTenant` usando `pool.connect()` + transação manual (`BEGIN` / `COMMIT` / `ROLLBACK`).
   - **Foco no Mental Debugging**: Simule uma falha na query do `admin` (terceiro `INSERT`); o que acontece com a conexão no `finally` e com os registros anteriores?
 
-- [ ] **`[NOVO]`** [tenant.service.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/services/tenant.service.ts)
+- [x] **`[NOVO]`** [tenant.service.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/services/tenant.service.ts)
   - **Escopo**: Validação prévia de conflito de CNPJ da empresa e da loja (`409`), geração de hash, emissão de token inicial e atualização segura do próprio tenant.
   - **Foco no Edge Case**: Por que checar `findByCNPJ` antes da transação se o banco já tem índice único? O que acontece em caso de condição de corrida (*race condition*)?
 
-- [ ] **`[NOVO]`** [tenant.routes.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/routes/tenant.routes.ts) + **`[NOVO]`** [tenant.controller.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/controllers/tenant.controller.ts)
+- [x] **`[NOVO]`** [tenant.routes.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/routes/tenant.routes.ts) + **`[NOVO]`** [tenant.controller.ts](file:///c:/Users/User/Desktop/Projetos/back-end-site-garagem/src/controllers/tenant.controller.ts)
   - **Escopo**: Rota `/onboard` protegida para provisionamento exclusivo do dono do SaaS (`registerLimit` + `authenticateOnboardingSecret` via header `x-onboarding-secret`) e rota `/me` (autenticada, `PUT` restrito a `ADMIN`) usando `validate(...)` e propagação assíncrona do Express 5.
 
 ---
