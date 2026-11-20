@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   TenantRepository,
@@ -218,7 +219,7 @@ describe('TenantRepository - integração com PostgreSQL', () => {
       connect: () => Promise.reject(new Error('not implemented')),
     };
 
-    const repoWithMock = new TenantRepository(mockPool as any);
+    const repoWithMock = new TenantRepository(mockPool as unknown as Pool);
     const tenant = await repoWithMock.findById('11111111-1111-1111-1111-111111111111');
     expect(tenant).not.toBeNull();
     expect(tenant?.corporate_name).toBe('Mock Corp');
@@ -254,7 +255,7 @@ describe('TenantRepository - integração com PostgreSQL', () => {
       connect: () => Promise.resolve(mockClient),
     };
 
-    const repoWithMock = new TenantRepository(mockPool as any);
+    const repoWithMock = new TenantRepository(mockPool as unknown as Pool);
 
     await expect(
       repoWithMock.onboardTenant({

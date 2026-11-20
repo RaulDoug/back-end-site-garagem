@@ -15,7 +15,7 @@ import {
   OnboardTenantInput,
   UpdateTenantInput,
 } from '#schemas/tenant.schema.js';
-import { AppError, NotFoundError } from '#src/errors/app.error.js';
+import { AppError, BadRequestError, NotFoundError } from '#src/errors/app.error.js';
 import { hashPassword } from '#utils/hash.util.js';
 import { generateToken } from '#utils/jwt.util.js';
 
@@ -44,6 +44,7 @@ export default class TenantService extends BaseService<Tenant, CreateTenantData>
     const password_hash = await hashPassword(validated.admin.password);
 
     const { tenant, store, admin } = await this.repository.onboardTenant({
+      is_multi_store: validated.is_multi_store,
       tenant: validated.tenant,
       store: validated.store,
       admin: {
@@ -51,8 +52,6 @@ export default class TenantService extends BaseService<Tenant, CreateTenantData>
         email: validated.admin.email,
         password_hash,
         phone: validated.admin.phone,
-        cpf: validated.admin.cpf,
-        birth_date: validated.admin.birth_date,
       },
     });
 
@@ -61,7 +60,7 @@ export default class TenantService extends BaseService<Tenant, CreateTenantData>
       email: admin.email,
       role: admin.role,
       tenantId: tenant.id,
-      storeId: store.id,
+      storeId: admin.store_id ?? null,
     });
 
     return {
@@ -82,6 +81,10 @@ export default class TenantService extends BaseService<Tenant, CreateTenantData>
 
   async update(tenantId: string, data: unknown): Promise<Tenant> {
     const validated: UpdateTenantInput = updateTenantSchema.parse(data);
+
+    if (!Object.values(validated).some((v) => v !== undefined)) {
+      throw new BadRequestError('Nenhum dado informado');
+    }
 
     await this.getById(tenantId);
 

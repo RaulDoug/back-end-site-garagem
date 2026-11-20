@@ -155,7 +155,6 @@ describe('E2E - Suíte Completa de Isolamento Multi-Tenant & Multi-Store', () =>
             email: `admin_alpha_${Date.now()}@alpha.com`,
             password: 'StrongPassword123!',
             phone: '(37) 99999-1111',
-            cpf: '123.456.789-09',
           },
         });
 
@@ -208,7 +207,6 @@ describe('E2E - Suíte Completa de Isolamento Multi-Tenant & Multi-Store', () =>
             email: `admin_beta_${Date.now()}@beta.com`,
             password: 'StrongPassword123!',
             phone: '(37) 99999-2222',
-            cpf: '987.654.321-00',
           },
         });
 

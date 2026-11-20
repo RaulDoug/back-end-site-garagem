@@ -68,7 +68,6 @@ const validOnboardPayload = {
     email: 'admin@empresa.com',
     password: 'Password123!',
     phone: '(37) 99999-8888',
-    cpf: '123.456.789-09',
   },
 };
 
@@ -110,7 +109,7 @@ describe('TenantService', () => {
 
       const result = await tenantService.onboard(validOnboardPayload);
 
-      expect(tenantRepository.findByCNPJ).toHaveBeenCalledWith('12.345.678/0001-95');
+      expect(tenantRepository.findByCNPJ).toHaveBeenCalledWith('12345678000195');
       expect(storeRepository.findByCNPJ).toHaveBeenCalledWith('45723174000110');
       expect(tenantRepository.onboardTenant).toHaveBeenCalled();
       expect(result).toHaveProperty('tenant');
@@ -118,6 +117,32 @@ describe('TenantService', () => {
       expect(result).toHaveProperty('admin');
       expect(result).toHaveProperty('token');
       expect(typeof result.token).toBe('string');
+    });
+
+    it('deve repassar is_multi_store para onboardTenant e gerar token com storeId null quando is_multi_store for true', async () => {
+      vi.mocked(tenantRepository.findByCNPJ).mockResolvedValue(null);
+      vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(null);
+      vi.mocked(tenantRepository.onboardTenant).mockResolvedValue({
+        tenant: mockTenant,
+        store: mockStore,
+        admin: {
+          ...mockAdmin,
+          store_id: null,
+        },
+      });
+
+      const result = await tenantService.onboard({
+        ...validOnboardPayload,
+        is_multi_store: true,
+      });
+
+      expect(tenantRepository.onboardTenant).toHaveBeenCalledWith(
+        expect.objectContaining({
+          is_multi_store: true,
+        })
+      );
+      expect(result.admin.store_id).toBeNull();
+      expect(result.token).toBeDefined();
     });
 
     it('deve lançar AppError 409 se o CNPJ da empresa já estiver em uso', async () => {
@@ -166,6 +191,13 @@ describe('TenantService', () => {
       });
 
       expect(result.trade_name).toBe('Novo Nome');
+    });
+
+    it('deve lançar BadRequestError("Nenhum dado informado") se payload for vazio', async () => {
+      await expect(tenantService.update('tenant-uuid-1', {})).rejects.toThrow(
+        'Nenhum dado informado'
+      );
+      expect(tenantRepository.update).not.toHaveBeenCalled();
     });
 
     it('deve lançar AppError 409 se alterar para CNPJ já em uso por outro tenant', async () => {

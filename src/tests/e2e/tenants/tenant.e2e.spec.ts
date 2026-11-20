@@ -92,7 +92,6 @@ describe('E2E - /api/tenants', () => {
             email: `gestor_${Date.now()}@autoshopping.com`,
             password: 'StrongPassword123!',
             phone: '(37) 99999-8888',
-            cpf: '123.456.789-09',
           },
         });
 
@@ -106,6 +105,44 @@ describe('E2E - /api/tenants', () => {
       expect(response.body.admin.tenant_id).toBe(response.body.tenant.id);
       expect(response.body.admin.role).toBe('ADMIN');
 
+      createdTenantIds.add(response.body.tenant.id);
+    });
+
+    it('deve realizar onboarding com is_multi_store: true e vincular admin.store_id como null (201)', async () => {
+      const { tenantCnpj, storeCnpj } = nextValidCnpjs();
+
+      const response = await request(app)
+        .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
+        .send({
+          is_multi_store: true,
+          tenant: {
+            corporate_name: 'Auto Shopping Multi Ltda',
+            trade_name: 'Auto Shopping Multi',
+            cnpj: tenantCnpj,
+          },
+          store: {
+            name: 'Loja Matriz Multi',
+            phone: '(37) 98888-7777',
+            cnpj: storeCnpj,
+            zip_code: '35500-000',
+            street: 'Av. Brasil',
+            number: '1000',
+            neighborhood: 'Centro',
+            city: 'Divinópolis',
+            state: 'MG',
+          },
+          admin: {
+            name: 'Gestor Multi Store',
+            email: `gestor_multi_${Date.now()}@autoshopping.com`,
+            password: 'StrongPassword123!',
+            phone: '(37) 99999-8888',
+          },
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.admin.store_id).toBeNull();
       createdTenantIds.add(response.body.tenant.id);
     });
 
@@ -136,7 +173,6 @@ describe('E2E - /api/tenants', () => {
             email: 'admin@invalida.com',
             password: 'Password123!',
             phone: '(37) 99999-8888',
-            cpf: '123.456.789-09',
           },
         });
 
@@ -170,7 +206,6 @@ describe('E2E - /api/tenants', () => {
           email: `admin_${Date.now()}@duplicada.com`,
           password: 'Password123!',
           phone: '(37) 99999-8888',
-          cpf: '123.456.789-09',
         },
       };
 
@@ -271,7 +306,6 @@ describe('E2E - /api/tenants', () => {
             email: `admin_me_${Date.now()}@me.com`,
             password: 'Password123!',
             phone: '(37) 99999-8888',
-            cpf: '123.456.789-09',
           },
         });
 
@@ -318,7 +352,6 @@ describe('E2E - /api/tenants', () => {
             email: `admin_role_${Date.now()}@role.com`,
             password: 'Password123!',
             phone: '(37) 99999-8888',
-            cpf: '123.456.789-09',
           },
         });
 
@@ -384,7 +417,6 @@ describe('E2E - /api/tenants', () => {
             email: `admin_update_${Date.now()}@update.com`,
             password: 'Password123!',
             phone: '(37) 99999-8888',
-            cpf: '123.456.789-09',
           },
         });
 
@@ -399,6 +431,49 @@ describe('E2E - /api/tenants', () => {
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('tenant');
       expect(response.body.tenant.trade_name).toBe('Nome Fantasia Editado Com Sucesso');
+    });
+
+    it('deve retornar 400 com mensagem "Nenhum dado informado" ao enviar objeto vazio no update', async () => {
+      const { tenantCnpj, storeCnpj } = nextValidCnpjs();
+      const onboardRes = await request(app)
+        .post('/api/tenants/onboard')
+        .set('X-Forwarded-For', nextIp())
+        .set('x-onboarding-secret', process.env.ONBOARDING_SECRET!)
+        .send({
+          tenant: {
+            corporate_name: 'Empresa Vazia Ltda',
+            trade_name: 'Empresa Vazia',
+            cnpj: tenantCnpj,
+          },
+          store: {
+            name: 'Loja Vazia',
+            phone: '(37) 98888-7777',
+            cnpj: storeCnpj,
+            zip_code: '35500-000',
+            street: 'Rua',
+            number: '1',
+            neighborhood: 'Bairro',
+            city: 'Cidade',
+            state: 'MG',
+          },
+          admin: {
+            name: 'Admin Vazio',
+            email: `admin_vazio_${Date.now()}@vazio.com`,
+            password: 'Password123!',
+            phone: '(37) 99999-8888',
+          },
+        });
+
+      createdTenantIds.add(onboardRes.body.tenant.id);
+      const token = onboardRes.body.token;
+
+      const response = await request(app)
+        .put('/api/tenants/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe('Nenhum dado informado');
     });
 
     it('deve retornar 400 com formato fail se enviar CNPJ inválido no update', async () => {
@@ -429,7 +504,6 @@ describe('E2E - /api/tenants', () => {
             email: `admin_zod_${Date.now()}@zod.com`,
             password: 'Password123!',
             phone: '(37) 99999-8888',
-            cpf: '123.456.789-09',
           },
         });
 
