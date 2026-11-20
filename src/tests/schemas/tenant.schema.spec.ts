@@ -47,7 +47,7 @@ describe('Tenant Schemas & Validators', () => {
   });
 
   describe('createTenantSchema', () => {
-    it('deve aprovar payload válido de criação de tenant', () => {
+    it('deve aprovar payload válido de criação de tenant e normalizar cnpj para 14 dígitos', () => {
       const result = createTenantSchema.safeParse({
         corporate_name: 'Minha Empresa Ltda',
         trade_name: 'Minha Empresa',
@@ -58,6 +58,7 @@ describe('Tenant Schemas & Validators', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.corporate_name).toBe('Minha Empresa Ltda');
+        expect(result.data.cnpj).toBe(VALID_CNPJ_RAW);
         expect(result.data.is_active).toBe(true);
       }
     });
@@ -88,12 +89,21 @@ describe('Tenant Schemas & Validators', () => {
   });
 
   describe('updateTenantSchema', () => {
-    it('deve permitir atualização parcial de campos', () => {
+    it('deve permitir atualização parcial de campos e não injetar is_active', () => {
       const result = updateTenantSchema.safeParse({
         trade_name: 'Novo Nome Fantasia',
       });
 
       expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data as Record<string, unknown>).is_active).toBeUndefined();
+      }
+
+      const emptyResult = updateTenantSchema.safeParse({});
+      expect(emptyResult.success).toBe(true);
+      if (emptyResult.success) {
+        expect((emptyResult.data as Record<string, unknown>).is_active).toBeUndefined();
+      }
     });
   });
 
@@ -120,13 +130,68 @@ describe('Tenant Schemas & Validators', () => {
         email: 'admin@garagemcentral.com',
         password: 'Password123!',
         phone: '(37) 99999-8888',
-        cpf: VALID_CPF,
       },
     };
 
     it('deve validar com sucesso um payload completo de onboarding', () => {
       const result = onboardTenantSchema.safeParse(validOnboardPayload);
       expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.is_multi_store).toBe(false);
+      }
+    });
+
+    it('deve aceitar is_multi_store: true explicitamente', () => {
+      const result = onboardTenantSchema.safeParse({
+        ...validOnboardPayload,
+        is_multi_store: true,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.is_multi_store).toBe(true);
+      }
+    });
+
+    it('deve aceitar store.complement: null no onboarding', () => {
+      const result = onboardTenantSchema.safeParse({
+        ...validOnboardPayload,
+        store: {
+          ...validOnboardPayload.store,
+          complement: null,
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('deve falhar se admin.phone tiver mais de 15 caracteres ou formato inválido', () => {
+      const result = onboardTenantSchema.safeParse({
+        ...validOnboardPayload,
+        admin: {
+          ...validOnboardPayload.admin,
+          phone: '+55 (37) 99999-8888',
+        },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('deve falhar se a senha do admin não tiver complexidade', () => {
+      const result = onboardTenantSchema.safeParse({
+        ...validOnboardPayload,
+        admin: {
+          ...validOnboardPayload.admin,
+          password: 'password123', // sem maiúscula e caractere especial
+        },
+      });
+      expect(result.success).toBe(false);
+
+      const resultOnlyDigits = onboardTenantSchema.safeParse({
+        ...validOnboardPayload,
+        admin: {
+          ...validOnboardPayload.admin,
+          password: '12345678',
+        },
+      });
+      expect(resultOnlyDigits.success).toBe(false);
     });
 
     it('deve falhar se o CNPJ do tenant for inválido', () => {
@@ -135,18 +200,6 @@ describe('Tenant Schemas & Validators', () => {
         tenant: {
           ...validOnboardPayload.tenant,
           cnpj: INVALID_CNPJ,
-        },
-      });
-
-      expect(result.success).toBe(false);
-    });
-
-    it('deve falhar se o CPF do admin for inválido', () => {
-      const result = onboardTenantSchema.safeParse({
-        ...validOnboardPayload,
-        admin: {
-          ...validOnboardPayload.admin,
-          cpf: INVALID_CPF,
         },
       });
 

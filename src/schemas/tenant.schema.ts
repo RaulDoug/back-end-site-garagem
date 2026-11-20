@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createStoreSchema } from '#schemas/store.schema.js';
+import { storeBodySchema } from '#schemas/store.schema.js';
 
 export function validateCNPJ(val: string): boolean {
   const digits = val.replace(/\D/g, '');
@@ -50,32 +50,36 @@ export const createTenantSchema = z.object({
   cnpj: z
     .string()
     .trim()
-    .min(14, 'CNPJ deve conter no mínimo 14 caracteres')
-    .max(18, 'CNPJ deve conter no máximo 18 caracteres')
-    .refine(validateCNPJ, { message: 'CNPJ inválido' }),
+    .regex(/^(\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$/, 'Formato de CNPJ inválido')
+    .refine(validateCNPJ, { message: 'CNPJ inválido' })
+    .transform((val) => val.replace(/\D/g, '')),
   is_active: z.boolean().optional().default(true),
 });
 
-export const updateTenantSchema = createTenantSchema.partial();
-
-const storeInputSchema = z.union([
-  createStoreSchema.shape.body,
-  createStoreSchema.transform(s => s.body),
-]);
+export const updateTenantSchema = createTenantSchema.omit({ is_active: true }).partial();
 
 const adminInputSchema = z.object({
   name: z.string().trim().min(2, 'O nome deve conter no mínimo 2 caracteres').max(255),
   email: z.string().trim().email('Formato de e-mail inválido').toLowerCase(),
-  password: z.string().min(8, 'A senha deve ter pelo menos 8 caracteres').max(255),
-  phone: z.string().trim().min(10, 'Telefone inválido').max(20),
-  cpf: z.string().trim().refine(validateCPF, { message: 'CPF inválido' }),
-  birth_date: z.string().optional().nullable(),
+  password: z
+    .string()
+    .min(8, 'A senha deve ter pelo menos 8 caracteres')
+    .max(255)
+    .regex(/[A-Z]/, { message: 'A senha deve conter ao menos uma letra maiúscula' })
+    .regex(/[a-z]/, { message: 'A senha deve conter ao menos uma letra minúscula' })
+    .regex(/[0-9]/, { message: 'A senha deve conter ao menos um número' })
+    .regex(/[^A-Za-z0-9]/, { message: 'A senha deve conter ao menos um caractere especial' }),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$/, 'Formato de telefone inválido. Use (XX) XXXXX-XXXX ou apenas números'),
 });
 
 export const onboardTenantSchema = z.object({
   tenant: createTenantSchema,
-  store: storeInputSchema,
+  store: storeBodySchema,
   admin: adminInputSchema,
+  is_multi_store: z.boolean().optional().default(false),
 });
 
 export const onboardTenantRouteSchema = z.object({

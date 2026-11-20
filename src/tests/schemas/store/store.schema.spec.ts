@@ -69,6 +69,17 @@ describe('createStoreSchema', () => {
     expect(result.data.body.state).toBe('MG');
   });
 
+  it('deve aceitar complement como null', () => {
+    const result = createStoreSchema.safeParse({
+      body: validBody({ complement: null }),
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    expect(result.data.body.complement).toBeNull();
+  });
+
   it('deve aceitar CNPJ que já venha sem máscara apenas com 14 dígitos', () => {
     const result = createStoreSchema.safeParse({
       body: validBody({ cnpj: VALID_CNPJ }),
