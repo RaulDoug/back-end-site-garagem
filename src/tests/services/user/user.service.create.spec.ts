@@ -85,6 +85,31 @@ describe('UserService.create', () => {
     expect(mockUserRepository.create).not.toHaveBeenCalled();
   });
 
+  it('deve lançar AppError (404) se store_id pertencer ao tenant mas a filial estiver inativa (is_active = false)', async () => {
+    mockUserRepository.findByEmail.mockResolvedValue(null);
+    mockStoreRepository.findByIdAndTenant.mockResolvedValue({
+      id: 'store-inativa',
+      tenant_id: TENANT_ID,
+      is_active: false,
+    } as never);
+
+    await expect(
+      userService.create(
+        {
+          ...createInput,
+          store_id: 'store-inativa',
+        },
+        TENANT_ID
+      )
+    ).rejects.toThrow(new AppError('Filial informada não encontrada nesta empresa', 404));
+
+    expect(mockStoreRepository.findByIdAndTenant).toHaveBeenCalledWith(
+      'store-inativa',
+      TENANT_ID
+    );
+    expect(mockUserRepository.create).not.toHaveBeenCalled();
+  });
+
   it('deve retornar o usuário criado sem a propriedade password_hash', async () => {
     mockUserRepository.findByEmail.mockResolvedValue(null);
     vi.mocked(bcrypt.hash).mockResolvedValue(HASHED_PASSWORD as never);

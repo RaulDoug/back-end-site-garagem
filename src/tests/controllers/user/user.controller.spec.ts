@@ -326,6 +326,21 @@ describe('UserController', () => {
       expect(userService.delete).not.toHaveBeenCalled();
     });
 
+    it('não deve permitir auto-exclusão mesmo quando params.id vier em letras maiúsculas (400)', async () => {
+      const selfReq = createRequest({
+        params: { id: USER_ID.toUpperCase() },
+        user: { id: USER_ID, email: 'admin@garagem.com', tenantId: TENANT_ID, role: 'ADMIN', storeId: null },
+      });
+
+      await controller.delete(selfReq, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Não é possível deletar o próprio usuário.',
+      });
+      expect(userService.delete).not.toHaveBeenCalled();
+    });
+
     it('deve propagar erro quando o usuário for inexistente', async () => {
       const error = new Error('Usuário inexistente.');
       userService.delete.mockRejectedValue(error);

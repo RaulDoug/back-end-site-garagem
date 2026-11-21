@@ -26,6 +26,7 @@ describe('UserService.login', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockUserRepository.findAllActiveByEmail.mockResolvedValue([buildUser()]);
+    mockUserRepository.findAuthUserById.mockResolvedValue(buildUser());
     userService = new UserService(asUserRepository(mockUserRepository));
   });
 
@@ -175,6 +176,7 @@ describe('UserService.login', () => {
       buildUser({ id: 'user-1', tenant_id: 'tenant-1' }),
       buildUser({ id: 'user-2', tenant_id: 'tenant-2' }),
     ]);
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
 
     await expect(
       userService.login({
@@ -182,6 +184,35 @@ describe('UserService.login', () => {
         password: USER_PASSWORD,
       })
     ).rejects.toThrow('E-mail vinculado a múltiplas empresas. Informe o tenant_id para autenticar.');
+  });
+
+  it('deve lançar 401 Credenciais inválidas (e não 400) quando e-mail existir em múltiplos tenants mas a senha estiver incorreta', async () => {
+    mockUserRepository.findAllActiveByEmail.mockResolvedValue([
+      buildUser({ id: 'user-1', tenant_id: 'tenant-1' }),
+      buildUser({ id: 'user-2', tenant_id: 'tenant-2' }),
+    ]);
+    vi.mocked(bcrypt.compare).mockResolvedValue(false as never);
+
+    await expect(
+      userService.login({
+        email: USER_EMAIL,
+        password: USER_PASSWORD,
+      })
+    ).rejects.toThrow('Credenciais inválidas');
+  });
+
+  it('deve lançar 401 Credenciais inválidas quando tenant_id for informado mas o tenant ou filial estiver inativo em findAuthUserById', async () => {
+    mockUserRepository.findByEmail.mockResolvedValue(buildUser({ id: 'user-1', tenant_id: 'tenant-1' }));
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    mockUserRepository.findAuthUserById.mockResolvedValue(null);
+
+    await expect(
+      userService.login({
+        email: USER_EMAIL,
+        password: USER_PASSWORD,
+        tenant_id: 'tenant-1',
+      })
+    ).rejects.toThrow('Credenciais inválidas');
   });
 
   it('deve usar findByEmail diretamente e autenticar quando tenant_id for informado mesmo existindo múltiplos tenants', async () => {

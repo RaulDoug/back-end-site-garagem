@@ -9,20 +9,27 @@ import {
   safeUser,
 } from './user.service.fixtures.js';
 import {
+  asStoreRepository,
   asUserRepository,
+  createMockStoreRepository,
   createMockUserRepository,
 } from './user.service.mocks.js';
+import { AppError } from '#src/errors/app.error.js';
 
 vi.mock('bcrypt');
 vi.mock('jsonwebtoken');
 
 describe('UserService.update', () => {
   const mockUserRepository = createMockUserRepository();
+  const mockStoreRepository = createMockStoreRepository();
   let userService: UserService;
 
   beforeEach(() => {
     vi.resetAllMocks();
-    userService = new UserService(asUserRepository(mockUserRepository));
+    userService = new UserService(
+      asUserRepository(mockUserRepository),
+      asStoreRepository(mockStoreRepository)
+    );
   });
 
   it('deve atualizar o usuário e retornar o registro atualizado sem password_hash', async () => {
@@ -85,5 +92,28 @@ describe('UserService.update', () => {
     expect(Object.keys(resultado)).not.toContain('password_hash');
     expect(resultado.name).toBe('Raul Ferreira Junior');
     expect(resultado.email).toBe(USER_EMAIL);
+  });
+
+  it('deve lançar AppError (404) se store_id pertencer ao tenant mas a filial estiver inativa (is_active = false)', async () => {
+    mockUserRepository.findById.mockResolvedValue(buildUser());
+    mockStoreRepository.findByIdAndTenant.mockResolvedValue({
+      id: 'store-inativa',
+      tenant_id: TENANT_ID,
+      is_active: false,
+    } as never);
+
+    await expect(
+      userService.update(
+        USER_ID,
+        { store_id: 'store-inativa' },
+        TENANT_ID
+      )
+    ).rejects.toThrow(new AppError('Filial informada não encontrada nesta empresa', 404));
+
+    expect(mockStoreRepository.findByIdAndTenant).toHaveBeenCalledWith(
+      'store-inativa',
+      TENANT_ID
+    );
+    expect(mockUserRepository.update).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,7 @@ import {
   type CreateUserData,
 } from '#repositories/user.repository.js';
 import pool from '#src/config/database.js';
+import { BadRequestError } from '#src/errors/app.error.js';
 
 const repository = new UserRepository();
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -274,6 +275,96 @@ describe('UserRepository - integração com PostgreSQL', () => {
     expect(foundInB).not.toBeNull();
     expect(foundInB?.id).toBe(userB.id);
     expect(foundInB?.tenant_id).toBe(tenantB.id);
+  });
+
+  it('findByEmail deve lançar BadRequestError quando tenantId for string vazia ou espaços', async () => {
+    await expect(repository.findByEmail('teste@teste.com', '')).rejects.toThrow(BadRequestError);
+    await expect(repository.findByEmail('teste@teste.com', '   ')).rejects.toThrow(
+      'Identificador de tenant inválido'
+    );
+  });
+
+  it('findAllActiveByEmail deve ignorar usuários cujo tenant ou filial vinculada estejam inativos ou soft-deleted', async () => {
+    const sharedEmail = uniqueEmail('multitenant_active_tenant_store');
+
+    const userA = await repository.create({
+      tenant_id: tenantA.id,
+      name: 'User A',
+      email: sharedEmail,
+      password_hash: PASSWORD_HASH,
+      phone: '(37) 98888-1111',
+    });
+    createdEmails.add(userA.email);
+
+    const resActiveStoreTenant = await pool.query<{ id: string }>(
+      `INSERT INTO tenants (corporate_name, trade_name, cnpj, is_active)
+       VALUES ($1, $2, $3, true) RETURNING id;`,
+      ['Tenant Active Store Corp', 'Tenant Active Store Trade', uniqueCnpj()]
+    );
+    const activeStoreTenantId = resActiveStoreTenant.rows[0].id;
+    createdTenantIds.add(activeStoreTenantId);
+
+    const storeActiveRes = await pool.query<{ id: string }>(
+      `INSERT INTO stores (
+         tenant_id, name, phone, cnpj, zip_code, street, number, neighborhood, city, state, is_active
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
+       RETURNING id;`,
+      [activeStoreTenantId, 'Filial Ativa', '(37) 98888-7777', uniqueCnpj(), '35500000', 'Rua 1', '10', 'Bairro', 'Cidade', 'MG']
+    );
+    const storeActiveId = storeActiveRes.rows[0].id;
+
+    const userWithActiveStore = await repository.create({
+      tenant_id: activeStoreTenantId,
+      store_id: storeActiveId,
+      name: 'User Active Store',
+      email: sharedEmail,
+      password_hash: PASSWORD_HASH,
+      phone: '(37) 98888-2222',
+    });
+    createdEmails.add(userWithActiveStore.email);
+
+    const resInactiveTenant = await pool.query(
+      `INSERT INTO tenants (corporate_name, trade_name, cnpj, is_active)
+       VALUES ($1, $2, $3, false) RETURNING id;`,
+      ['Tenant Inactive Corp', 'Tenant Inactive Trade', uniqueCnpj()]
+    );
+    const tenantInactiveId = resInactiveTenant.rows[0].id;
+    createdTenantIds.add(tenantInactiveId);
+
+    const userInactiveTenant = await repository.create({
+      tenant_id: tenantInactiveId,
+      name: 'User Inactive Tenant',
+      email: sharedEmail,
+      password_hash: PASSWORD_HASH,
+      phone: '(37) 98888-3333',
+    });
+    createdEmails.add(userInactiveTenant.email);
+
+    const storeInactiveRes = await pool.query<{ id: string }>(
+      `INSERT INTO stores (
+         tenant_id, name, phone, cnpj, zip_code, street, number, neighborhood, city, state, is_active
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false)
+       RETURNING id;`,
+      [tenantB.id, 'Filial Inativa', '(37) 98888-7777', uniqueCnpj(), '35500000', 'Rua 2', '20', 'Bairro', 'Cidade', 'MG']
+    );
+    const storeInactiveId = storeInactiveRes.rows[0].id;
+
+    const userWithInactiveStore = await repository.create({
+      tenant_id: tenantB.id,
+      store_id: storeInactiveId,
+      name: 'User Inactive Store',
+      email: sharedEmail,
+      password_hash: PASSWORD_HASH,
+      phone: '(37) 98888-4444',
+    });
+    createdEmails.add(userWithInactiveStore.email);
+
+    const activeUsers = await repository.findAllActiveByEmail(sharedEmail);
+    const activeIds = activeUsers.map((u) => u.id);
+    expect(activeIds).toContain(userA.id);
+    expect(activeIds).toContain(userWithActiveStore.id);
+    expect(activeIds).not.toContain(userInactiveTenant.id);
+    expect(activeIds).not.toContain(userWithInactiveStore.id);
   });
 
   it('deve retornar todos os usuários ativos com o mesmo e-mail em findAllActiveByEmail e ignorar inativos ou soft-deleted', async () => {

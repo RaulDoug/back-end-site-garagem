@@ -27,7 +27,7 @@ export default class UserService {
 
     if (data.store_id) {
       const store = await this.storeRepo.findByIdAndTenant(data.store_id, tenantId);
-      if (!store) {
+      if (!store || !store.is_active) {
         throw new AppError('Filial informada não encontrada nesta empresa', 404);
       }
     }
@@ -55,24 +55,48 @@ export default class UserService {
 
     if (tenant_id) {
       user = await this.userRepository.findByEmail(email, tenant_id);
+      if (user === null || !user.is_active) {
+        throw new AppError('Credenciais inválidas', 401);
+      }
+
+      const isMatch = await comparePassword(password, user.password_hash);
+      if (!isMatch) {
+        throw new AppError('Credenciais inválidas', 401);
+      }
+
+      if (typeof this.userRepository.findAuthUserById === 'function') {
+        const authUser = await this.userRepository.findAuthUserById(user.id);
+        if (!authUser) {
+          throw new AppError('Credenciais inválidas', 401);
+        }
+      }
     } else {
       const candidates = await this.userRepository.findAllActiveByEmail(email);
-      if (candidates.length > 1) {
+      const activeCandidates = candidates.filter((c) => c.is_active);
+      if (activeCandidates.length === 0) {
+        throw new AppError('Credenciais inválidas', 401);
+      }
+
+      const matched: User[] = [];
+      for (const candidate of activeCandidates) {
+        const isMatch = await comparePassword(password, candidate.password_hash);
+        if (isMatch) {
+          matched.push(candidate);
+        }
+      }
+
+      if (matched.length === 0) {
+        throw new AppError('Credenciais inválidas', 401);
+      }
+
+      if (activeCandidates.length > 1) {
         throw new AppError(
           'E-mail vinculado a múltiplas empresas. Informe o tenant_id para autenticar.',
           400
         );
       }
-      user = candidates[0] ?? null;
-    }
 
-    if (user === null || !user.is_active) {
-      throw new AppError('Credenciais inválidas', 401);
-    }
-
-    const isMatch = await comparePassword(password, user.password_hash);
-    if (!isMatch) {
-      throw new AppError('Credenciais inválidas', 401);
+      user = matched[0];
     }
 
     const payload = {
@@ -117,17 +141,9 @@ export default class UserService {
       throw new NotFoundError('Usuário inexistente.');
     }
 
-    const userEmail = (data as { email?: string }).email;
-    if (userEmail && userEmail.toLowerCase() !== existingUser.email.toLowerCase()) {
-      const duplicate = await this.userRepository.findByEmail(userEmail.toLowerCase(), tenantId);
-      if (duplicate && duplicate.id !== id) {
-        throw new AppError('E-mail já em uso por outro usuário', 409);
-      }
-    }
-
     if (data.store_id && tenantId) {
       const store = await this.storeRepo.findByIdAndTenant(data.store_id, tenantId);
-      if (!store) {
+      if (!store || !store.is_active) {
         throw new AppError('Filial informada não encontrada nesta empresa', 404);
       }
     }

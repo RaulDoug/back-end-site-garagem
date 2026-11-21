@@ -1,5 +1,7 @@
+import type { Pool } from 'pg';
 import pool from '#src/config/database.js';
 import BaseRepository from '#repositories/base.repository.js';
+import { BadRequestError } from '#src/errors/app.error.js';
 
 export interface User {
   id: string;
@@ -43,11 +45,15 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
     'created_at',
   ];
 
-  constructor() {
-    super('users');
+  constructor(customPool: Pool = pool) {
+    super('users', {}, customPool);
   }
 
   async findByEmail(email: string, tenantId?: string): Promise<User | null> {
+    if (tenantId !== undefined && (typeof tenantId !== 'string' || tenantId.trim() === '')) {
+      throw new BadRequestError('Identificador de tenant inválido');
+    }
+
     let query: string;
     let values: unknown[];
 
@@ -59,19 +65,25 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
       values = [email];
     }
 
-    const result = await pool.query<User>(query, values);
+    const result = await this.pool.query<User>(query, values);
     return result.rows[0] || null;
   }
 
   async findAllActiveByEmail(email: string): Promise<User[]> {
     const query = `
-      SELECT * FROM users
-      WHERE LOWER(email) = LOWER($1)
-        AND deleted_at IS NULL
-        AND is_active = true
-      ORDER BY created_at ASC;
+      SELECT u.*
+      FROM users u
+      INNER JOIN tenants t ON t.id = u.tenant_id
+      LEFT JOIN stores s ON s.id = u.store_id AND s.tenant_id = u.tenant_id
+      WHERE LOWER(u.email) = LOWER($1)
+        AND u.deleted_at IS NULL
+        AND u.is_active = true
+        AND t.deleted_at IS NULL
+        AND t.is_active = true
+        AND (u.store_id IS NULL OR (s.id IS NOT NULL AND s.deleted_at IS NULL AND s.is_active = true))
+      ORDER BY u.created_at ASC;
     `;
-    const result = await pool.query<User>(query, [email]);
+    const result = await this.pool.query<User>(query, [email]);
     return result.rows;
   }
 
@@ -89,7 +101,7 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
         AND (u.store_id IS NULL OR (s.id IS NOT NULL AND s.deleted_at IS NULL AND s.is_active = true))
       LIMIT 1;
     `;
-    const result = await pool.query<User>(query, [id]);
+    const result = await this.pool.query<User>(query, [id]);
     return result.rows[0] || null;
   }
 
@@ -111,7 +123,7 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
       data.commission_rates ?? null,
     ];
 
-    const result = await pool.query<User>(query, values);
+    const result = await this.pool.query<User>(query, values);
     return result.rows[0];
   }
 }

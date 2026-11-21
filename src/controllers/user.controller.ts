@@ -65,7 +65,7 @@ export default class UserController {
     const userId = req.user?.id;
     const tenantId = req.user!.tenantId;
 
-    if (userId === id) {
+    if (userId && userId.toLowerCase() === (id as string).toLowerCase()) {
       return res.status(400).json({ message: 'Não é possível deletar o próprio usuário.' });
     }
 
