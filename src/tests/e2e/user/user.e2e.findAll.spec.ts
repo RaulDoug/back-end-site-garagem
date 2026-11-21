@@ -82,8 +82,17 @@ describe('GET /api/users - listagem e filtro de deletados', () => {
     });
   });
 
-  it('deve permitir que VENDEDOR liste os usuários', async () => {
+  it('deve retornar 403 para usuário VENDEDOR', async () => {
     const res = await getAll(vendedorToken);
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      message: 'Acesso proibido. Permissão insuficiente.',
+    });
+  });
+
+  it('deve permitir que ADMIN liste os usuários', async () => {
+    const res = await getAll(adminToken);
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.users)).toBe(true);
@@ -91,7 +100,7 @@ describe('GET /api/users - listagem e filtro de deletados', () => {
   });
 
   it('não deve retornar password_hash em nenhum item', async () => {
-    const res = await getAll(vendedorToken);
+    const res = await getAll(adminToken);
 
     expect(res.status).toBe(200);
 
@@ -118,7 +127,7 @@ describe('GET /api/users - listagem e filtro de deletados', () => {
 
     expect(res.status).toBe(403);
     expect(res.body).toHaveProperty('message');
-    expect(res.body.message).toContain('Permissão insuficiente para incluir registros excluídos');
+    expect(res.body.message).toContain('Acesso proibido. Permissão insuficiente.');
   });
 
   it('deve ignorar include_deleted com valor abc', async () => {

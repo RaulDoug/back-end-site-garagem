@@ -32,6 +32,7 @@ describe('GET /api/users/:id - autorização e casos de borda', () => {
   let targetUserId: string;
   let deletedUserId: string;
   let vendedorToken: string;
+  let adminToken: string;
 
   beforeAll(async () => {
     const targetResponse = await register(targetUser);
@@ -55,12 +56,13 @@ describe('GET /api/users/:id - autorização e casos de borda', () => {
     expect(deletedRow.rows[0].is_active).toBe(false);
 
     vendedorToken = signToken('VENDEDOR');
+    adminToken = signToken('ADMIN');
   });
 
   afterAll(cleanup);
 
   it('deve retornar 400 quando o id não for um UUID', async () => {
-    const res = await getById('id-invalido', vendedorToken);
+    const res = await getById('id-invalido', adminToken);
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({
@@ -75,14 +77,14 @@ describe('GET /api/users/:id - autorização e casos de borda', () => {
   });
 
   it('deve retornar 404 quando o UUID não existir', async () => {
-    const res = await getById(UUID_INEXISTENTE, vendedorToken);
+    const res = await getById(UUID_INEXISTENTE, adminToken);
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ message: 'Usuário inexistente.' });
   });
 
   it('deve retornar 404 quando o usuário estiver deletado', async () => {
-    const res = await getById(deletedUserId, vendedorToken);
+    const res = await getById(deletedUserId, adminToken);
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ message: 'Usuário inexistente.' });
@@ -140,7 +142,7 @@ describe('GET /api/users/:id - autorização e casos de borda', () => {
   it('deve aceitar o prefixo bearer em minúsculo (case-insensitive)', async () => {
     const res = await request(app)
       .get(`/api/users/${targetUserId}`)
-      .set('Authorization', `bearer ${vendedorToken}`);
+      .set('Authorization', `bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
     expect(res.body.userInfo.id).toBe(targetUserId);
@@ -175,8 +177,17 @@ describe('GET /api/users/:id - autorização e casos de borda', () => {
     });
   });
 
-  it('deve permitir que VENDEDOR consulte um usuário', async () => {
+  it('deve retornar 403 para usuário VENDEDOR', async () => {
     const res = await getById(targetUserId, vendedorToken);
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      message: 'Acesso proibido. Permissão insuficiente.',
+    });
+  });
+
+  it('deve permitir que ADMIN consulte um usuário', async () => {
+    const res = await getById(targetUserId, adminToken);
 
     expect(res.status).toBe(200);
     expect(res.body.userInfo).toMatchObject({
@@ -189,7 +200,7 @@ describe('GET /api/users/:id - autorização e casos de borda', () => {
   });
 
   it('deve retornar a resposta sem password_hash', async () => {
-    const res = await getById(targetUserId, vendedorToken);
+    const res = await getById(targetUserId, adminToken);
 
     expect(res.status).toBe(200);
     expect(res.body.userInfo).not.toHaveProperty('password_hash');
