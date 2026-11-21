@@ -20,6 +20,8 @@ export interface FindParams {
 export interface FindData {
     filters: FindParams[];
     includeDeleted?: boolean;
+    page?: number;
+    limit?: number;
 }
 
 export default class BaseRepository<

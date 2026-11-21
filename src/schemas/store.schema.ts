@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { baseFindQuerySchema } from '#schemas/base.schema.js';
 
-const idValidation = z.string().uuid('ID da loja inválido');
+const idValidation = z.string().uuid('ID da loja inválido').toLowerCase();
 const nameValidation = z.string().trim().min(2, 'O nome deve conter no mínimo 2 caracteres').max(255);
 const phoneValidation = z
   .string()
@@ -43,7 +43,7 @@ export const findStoreSchema = z.object({
     name_like: z.string().optional(),
     cnpj: cnpjValidation.optional(),
     city_like: z.string().optional(),
-    state: z.string().min(1).max(2).optional()
+    state: z.string().trim().min(1).max(2).toUpperCase().optional()
   })
 });
 

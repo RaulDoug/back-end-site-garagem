@@ -5,6 +5,7 @@ import {
   deleteStoreSchema,
   findByCnpjStoreSchema,
   findByIdStoreSchema,
+  findStoreSchema,
   updateStoreSchema,
 } from '#schemas/store.schema.js';
 
@@ -186,6 +187,21 @@ describe('updateStoreSchema', () => {
 });
 
 describe('findByIdStoreSchema e deleteStoreSchema', () => {
+  it('deve converter id em params para lowercase e state na query para uppercase', () => {
+    const uppercaseUuid = '7C9E6679-7425-40DE-944B-E07FC1F90AE7';
+    const parsedParams = findByIdStoreSchema.safeParse({ params: { id: uppercaseUuid } });
+    expect(parsedParams.success).toBe(true);
+    if (parsedParams.success) {
+      expect(parsedParams.data.params.id).toBe(uppercaseUuid.toLowerCase());
+    }
+
+    const parsedQuery = findStoreSchema.safeParse({ query: { state: 'mg' } });
+    expect(parsedQuery.success).toBe(true);
+    if (parsedQuery.success) {
+      expect(parsedQuery.data.query.state).toBe('MG');
+    }
+  });
+
   it('deve validar UUID em findByIdStoreSchema', () => {
     const valid = findByIdStoreSchema.safeParse({ params: { id: VALID_UUID } });
     expect(valid.success).toBe(true);

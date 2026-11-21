@@ -243,6 +243,30 @@ describe('query.util - buildFindQuery (segurança e filtros)', () => {
   });
 });
 
+describe('query.util - buildFindQuery (paginação e offset)', () => {
+  it('deve aplicar LIMIT e OFFSET a partir de filters.page e filters.limit', () => {
+    const result = buildFindQuery(
+      'users',
+      { filters: [], page: 2, limit: 5 },
+      { tenantId: 't-1' }
+    );
+
+    expect(result.query).toBe(
+      'SELECT * FROM users WHERE deleted_at IS NULL AND tenant_id = $1 LIMIT $2 OFFSET $3'
+    );
+    expect(result.values).toEqual(['t-1', 5, 5]);
+  });
+
+  it('deve usar limit padrão 10 quando apenas filters.page for informado', () => {
+    const result = buildFindQuery('users', { filters: [], page: 3 });
+
+    expect(result.query).toBe(
+      'SELECT * FROM users WHERE deleted_at IS NULL LIMIT $1 OFFSET $2'
+    );
+    expect(result.values).toEqual([10, 20]);
+  });
+});
+
 describe('query.util - buildFindQuery (tenant do contexto prevalece)', () => {
   it('descarta filtro tenant_id do chamador e aplica options.tenantId', () => {
     const result = buildFindQuery(

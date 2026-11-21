@@ -22,8 +22,8 @@ const commissionRatesValidation = z
   .max(100, 'A comissão máxima é 100%')
   .optional();
 
-const storeIdValidation = z.string().uuid({ message: 'ID da loja inválido' }).nullable().optional();
-const tenantIdValidation = z.string().uuid({ message: 'ID da empresa inválido' }).optional();
+const storeIdValidation = z.string().uuid({ message: 'ID da loja inválido' }).toLowerCase().nullable().optional();
+const tenantIdValidation = z.string().uuid({ message: 'ID da empresa inválido' }).toLowerCase().optional();
 
 export const createUserSchema = z.object({
   body: z.object({
@@ -47,7 +47,7 @@ export const loginUserSchema = z.object({
 
 export const loginSchema = loginUserSchema;
 
-const idValidation = z.string().uuid('ID do usuário inválido');
+const idValidation = z.string().uuid('ID do usuário inválido').toLowerCase();
 
 export const updateUserSchema = z.object({
   params: z.object({
@@ -72,15 +72,12 @@ export const findByIdUserSchema = z.object({
   params: z.object({ id: idValidation }),
 });
 
-export const findByEmailUserSchema = z.object({
-  query: z.object({ email: emailValidation }),
-});
-
 export const findUserSchema = z.object({
   query: baseFindQuerySchema.extend({
     name_like: z.string().optional(),
     email_like: z.string().optional(),
     role: roleValidation.optional(),
+    store_id: z.string().uuid('ID da loja inválido').toLowerCase().optional(),
   }),
 });
 

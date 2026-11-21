@@ -4,6 +4,7 @@ import {
   createUserSchema,
   deleteUserSchema,
   findByIdUserSchema,
+  findUserSchema,
   loginUserSchema,
   updateUserSchema,
 } from '#schemas/user.schema.js';
@@ -46,6 +47,65 @@ const expectIssue = (
 };
 
 describe('createUserSchema', () => {
+  it('deve normalizar UUIDs (params.id, body.store_id, body.tenant_id, query.store_id) para lowercase', () => {
+    const uppercaseUuid = '7C9E6679-7425-40DE-944B-E07FC1F90AE7';
+    const lowercaseUuid = uppercaseUuid.toLowerCase();
+
+    const createResult = createUserSchema.safeParse({
+      body: validBody({ store_id: uppercaseUuid }),
+    });
+    expect(createResult.success).toBe(true);
+    if (createResult.success) {
+      expect(createResult.data.body.store_id).toBe(lowercaseUuid);
+    }
+
+    const loginResult = loginUserSchema.safeParse({
+      body: {
+        email: 'mariana@garagem.com',
+        password: 'SenhaForte123!',
+        tenant_id: uppercaseUuid,
+      },
+    });
+    expect(loginResult.success).toBe(true);
+    if (loginResult.success) {
+      expect(loginResult.data.body.tenant_id).toBe(lowercaseUuid);
+    }
+
+    const updateResult = updateUserSchema.safeParse({
+      params: { id: uppercaseUuid },
+      body: { store_id: uppercaseUuid },
+    });
+    expect(updateResult.success).toBe(true);
+    if (updateResult.success) {
+      expect(updateResult.data.params.id).toBe(lowercaseUuid);
+      expect(updateResult.data.body.store_id).toBe(lowercaseUuid);
+    }
+
+    const deleteResult = deleteUserSchema.safeParse({
+      params: { id: uppercaseUuid },
+    });
+    expect(deleteResult.success).toBe(true);
+    if (deleteResult.success) {
+      expect(deleteResult.data.params.id).toBe(lowercaseUuid);
+    }
+
+    const findByIdResult = findByIdUserSchema.safeParse({
+      params: { id: uppercaseUuid },
+    });
+    expect(findByIdResult.success).toBe(true);
+    if (findByIdResult.success) {
+      expect(findByIdResult.data.params.id).toBe(lowercaseUuid);
+    }
+
+    const findResult = findUserSchema.safeParse({
+      query: { store_id: uppercaseUuid },
+    });
+    expect(findResult.success).toBe(true);
+    if (findResult.success) {
+      expect((findResult.data.query as { store_id?: string }).store_id).toBe(lowercaseUuid);
+    }
+  });
+
   it('deve aceitar um body válido e normalizar name e email', () => {
     const result = parseCreate({
       name: '  Mariana Costa  ',

@@ -11,6 +11,7 @@ export interface BuildFindQueryOptions {
   columns?: string[];
   orderBy?: { field: string; direction?: 'ASC' | 'DESC' };
   limit?: number;
+  offset?: number;
 }
 
 export function assertValidIdentifier(identifier: string): void {
@@ -151,16 +152,37 @@ export function buildFindQuery(
     query += ` ORDER BY ${options.orderBy.field} ${direction}`;
   }
 
-  if (options?.limit !== undefined) {
+  const effectiveLimit = options?.limit ?? filters.limit ?? (filters.page !== undefined ? 10 : undefined);
+  if (effectiveLimit !== undefined) {
     if (
-      typeof options.limit !== 'number' ||
-      !Number.isInteger(options.limit) ||
-      options.limit <= 0
+      typeof effectiveLimit !== 'number' ||
+      !Number.isInteger(effectiveLimit) ||
+      effectiveLimit <= 0
     ) {
       throw new BadRequestError('O limite deve ser um número inteiro positivo');
     }
-    values.push(options.limit);
+    values.push(effectiveLimit);
     query += ` LIMIT $${values.length}`;
+  }
+
+  const effectiveOffset =
+    options?.offset ??
+    (filters.page !== undefined && effectiveLimit !== undefined
+      ? (filters.page - 1) * effectiveLimit
+      : undefined);
+
+  if (effectiveOffset !== undefined) {
+    if (
+      typeof effectiveOffset !== 'number' ||
+      !Number.isInteger(effectiveOffset) ||
+      effectiveOffset < 0
+    ) {
+      throw new BadRequestError('O offset deve ser um número inteiro não-negativo');
+    }
+    if (options?.offset !== undefined || filters.page !== undefined) {
+      values.push(effectiveOffset);
+      query += ` OFFSET $${values.length}`;
+    }
   }
 
   return { query, values };

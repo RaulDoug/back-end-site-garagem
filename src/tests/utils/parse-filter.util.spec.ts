@@ -108,6 +108,28 @@ describe('parseFilters util', () => {
     });
   });
 
+  describe('paginação (page e limit)', () => {
+    it('deve extrair page e limit numéricos quando informados na query', () => {
+      const result = parseFilters({ page: '2', limit: '5', role: 'ADMIN' });
+
+      expect(result).toEqual({
+        filters: [{ field: 'role', operator: '=', value: 'ADMIN' }],
+        page: 2,
+        limit: 5,
+      });
+    });
+
+    it('não deve incluir chaves page e limit no objeto retornado quando ausentes', () => {
+      const result = parseFilters({});
+
+      expect(result).toEqual({
+        filters: [],
+      });
+      expect(result.page).toBeUndefined();
+      expect(result.limit).toBeUndefined();
+    });
+  });
+
   describe('limpeza e casos de borda', () => {
     it('deve ignorar valores nulos, indefinidos ou strings vazias', () => {
       const result = parseFilters({

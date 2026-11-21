@@ -6,6 +6,12 @@ export function parseFilters(query: Record<string, unknown>): FindData {
   // tratamento de include_deleted
   const includeDeleted = query.include_deleted === 'true';
 
+  const parsedPage = Number(query.page);
+  const page = Number.isInteger(parsedPage) && parsedPage >= 1 ? parsedPage : undefined;
+
+  const parsedLimit = Number(query.limit);
+  const limit = Number.isInteger(parsedLimit) && parsedLimit >= 1 ? parsedLimit : undefined;
+
   // Percorre cada chave-valor do objeto query
   for (const [key, rawValue] of Object.entries(query)) {
     if (
@@ -43,5 +49,10 @@ export function parseFilters(query: Record<string, unknown>): FindData {
     filters.push({ field, operator, value });
   }
 
-  return includeDeleted ? { filters, includeDeleted } : { filters };
+  return {
+    filters,
+    ...(includeDeleted ? { includeDeleted } : {}),
+    ...(page !== undefined ? { page } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  };
 }
