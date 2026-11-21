@@ -290,22 +290,25 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `parseFilters(query: Record<string, unknown>): FindData`
 - **Arquivo:** `src/utils/parse-filter.util.ts`
-- **Descrição:** Converte parâmetros de busca de uma URL (`req.query`) em uma estrutura tipada de filtros relacionais (`filters` e `includeDeleted`).
+- **Descrição:** Converte parâmetros de busca de uma URL (`req.query`) em uma estrutura tipada de filtros relacionais (`filters`, `includeDeleted`, `page` e `limit`).
 - **Assinatura & Parâmetros:**
   - `query` (`Record<string, unknown>`): Objeto de consulta bruto da requisição.
-- **Retorno:** `FindData` contendo `filters: FindParams[]` e `includeDeleted?: boolean`.
+- **Retorno:** `FindData` contendo `filters: FindParams[]`, `includeDeleted?: boolean`, `page?: number` e `limit?: number`.
   - Mapeia sufixo `_like` -> operador `'ILIKE'`.
   - Mapeia sufixo `_gte` -> operador `'>='`.
   - Mapeia sufixo `_lte` -> operador `'<='`.
   - Mapeia valores com vírgula (ex: `"1,2,3"`) -> operador `'IN'` com array `["1", "2", "3"]`.
   - Campos sem sufixo -> operador `'='`.
-  - Ignora chaves reservadas: `page`, `limit` e `include_deleted`.
+  - Extrai `page` e `limit` como números inteiros positivos (`>= 1`) quando presentes na query.
+  - Ignora chaves reservadas: `page`, `limit` e `include_deleted` dentro do array `filters`.
 - **Exemplo Real (Extraído de `parse-filter.util.spec.ts`):**
-  - Entrada: `parseFilters({ name_like: "civic", role: "ADMIN", include_deleted: "true" })`
+  - Entrada: `parseFilters({ name_like: "civic", role: "ADMIN", include_deleted: "true", page: "2", limit: "5" })`
   - Saída:
     ```javascript
     {
       includeDeleted: true,
+      page: 2,
+      limit: 5,
       filters: [
         { field: "name", operator: "ILIKE", value: "civic" },
         { field: "role", operator: "=", value: "ADMIN" }
@@ -367,16 +370,17 @@ Esta documentação cobre os componentes transversais da aplicação Express/Typ
 
 ### `buildFindQuery(tableName: string, filters: FindData, options?: BuildFindQueryOptions): { query: string; values: unknown[] }`
 - **Arquivo:** `src/utils/query.util.ts`
-- **Descrição:** Monta a query SQL `SELECT` com controle de `deleted_at IS NULL`, isolamento opcional de `tenant_id`, projeção explícita de `columns`, ordenação (`orderBy`), paginação (`limit`) e placeholders sequenciais. Quando `options.tenantId` é informado, o `tenantId` do contexto sempre prevalece e qualquer filtro `tenant_id` enviado pelo chamador em `filters` é descartado. Todos os identificadores de tabela, colunas e campos são blindados com `assertValidIdentifier`. Os operadores de busca são validados em runtime contra allowlist estrita `ALLOWED_FIND_OPERATORS` (`=`, `>=`, `<=`, `ILIKE`, `IN`). Para o operador `IN`, exige obrigatoriamente um array de valores (lançando `BadRequestError` caso contrário) e monta `${field} = ANY($n)`.
+- **Descrição:** Monta a query SQL `SELECT` com controle de `deleted_at IS NULL`, isolamento opcional de `tenant_id`, projeção explícita de `columns`, ordenação (`orderBy`), paginação (`LIMIT` e `OFFSET` derivados de `filters.page`/`filters.limit` ou `options.limit`/`options.offset`) e placeholders sequenciais. Quando apenas `filters.page` é informado, adota `limit` padrão de 10 registros. Quando `options.tenantId` é informado, o `tenantId` do contexto sempre prevalece e qualquer filtro `tenant_id` enviado pelo chamador em `filters` é descartado. Todos os identificadores de tabela, colunas e campos são blindados com `assertValidIdentifier`. Os operadores de busca são validados em runtime contra allowlist estrita `ALLOWED_FIND_OPERATORS` (`=`, `>=`, `<=`, `ILIKE`, `IN`). Para o operador `IN`, exige obrigatoriamente um array de valores (lançando `BadRequestError` caso contrário) e monta `${field} = ANY($n)`.
 - **Assinatura & Parâmetros:**
   - `tableName` (`string`): Nome da tabela.
-  - `filters` (`FindData`): Filtros posicionais (`filters: Filter[]`, `includeDeleted?: boolean`).
+  - `filters` (`FindData`): Filtros posicionais (`filters: Filter[]`, `includeDeleted?: boolean`, `page?: number`, `limit?: number`).
   - `options` (`BuildFindQueryOptions`, opcional):
     - `softDelete?: boolean`: Flag de soft-delete (padrão `true`).
     - `tenantId?: string`: Identificador do tenant para cláusula `tenant_id = $n` (rejeita strings vazias/espaços; prevalece sobre qualquer filtro `tenant_id` do chamador, que é descartado; quando `undefined`, preserva eventual filtro `tenant_id` do chamador).
     - `columns?: string[]`: Projeção de colunas específicas (padrão `*`, rejeita array vazio e identificadores inválidos).
     - `orderBy?: { field: string; direction?: 'ASC' | 'DESC' }`: Ordenação segura.
     - `limit?: number`: Limite de registros (exige inteiro positivo parametrizado).
+    - `offset?: number`: Deslocamento de registros (exige inteiro não-negativo parametrizado).
 - **Retorno:** `{ query: string; values: unknown[] }`.
 - **Exemplo Real (Extraído dos testes do Vitest):**
   - Entrada:

@@ -271,7 +271,7 @@ paths:
       tags:
         - Usuários
       summary: Listagem de Usuários
-      description: Lista usuários do tenant autenticado com paginação e filtros textuais. Requer perfil ADMIN ou VENDEDOR. Parâmetro include_deleted restrito a ADMIN.
+      description: Lista usuários do tenant autenticado com paginação e filtros textuais. Requer perfil ADMIN. Parâmetro include_deleted restrito a ADMIN.
       operationId: listUsers
       security:
         - BearerAuth: []
@@ -282,6 +282,7 @@ paths:
         - $ref: '#/components/parameters/IncludeDeletedQuery'
         - $ref: '#/components/parameters/CreatedAtGteQuery'
         - $ref: '#/components/parameters/CreatedAtLteQuery'
+        - $ref: '#/components/parameters/StoreIdQuery'
         - name: name_like
           in: query
           description: Filtro parcial por nome do usuário
@@ -317,7 +318,7 @@ paths:
       tags:
         - Usuários
       summary: Buscar Usuário por ID
-      description: Retorna os dados de um usuário do mesmo tenant pelo UUID. Permitido para ADMIN e VENDEDOR.
+      description: Retorna os dados de um usuário do mesmo tenant pelo UUID. Requer perfil ADMIN.
       operationId: getUserById
       security:
         - BearerAuth: []
@@ -375,12 +376,6 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-        '409':
-          description: E-mail já em uso por outro usuário no tenant
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
     delete:
       tags:
@@ -619,6 +614,21 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Conflito. Bloqueio de exclusão da própria filial vinculada ao usuário ou filial com dependências ativas (usuários ou veículos).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                propriaFilial:
+                  summary: Própria filial vinculada ao administrador
+                  value:
+                    message: "Não é permitido excluir a própria filial vinculada ao usuário"
+                dependenciasAtivas:
+                  summary: Usuários ou veículos ativos vinculados
+                  value:
+                    message: "Não é possível excluir loja com usuários ou veículos ativos vinculados"
 
   /api/stores/cnpj/{cnpj}:
     get:
@@ -2341,6 +2351,8 @@ components:
       required:
         - userInfo
       properties:
+        message:
+          type: string
         userInfo:
           $ref: '#/components/schemas/User'
 

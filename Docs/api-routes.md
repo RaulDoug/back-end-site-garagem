@@ -299,8 +299,8 @@ Controle de autenticação, criação de credenciais e gerenciamento de perfis d
 ---
 
 ## `GET` /api/users
-- **Descrição:** Lista usuários pertencentes ao tenant do usuário autenticado (`req.user.tenantId`), com suporte a paginação e filtros.
-- **Middlewares / Autenticação:** `authenticateJWT`, `validate(findUserSchema)`, `authorizeRoles('ADMIN', 'VENDEDOR')`, `includeDeletedValidateRole`.
+- **Descrição:** Lista usuários pertencentes ao tenant do usuário autenticado (`req.user.tenantId`), com suporte a paginação e filtros. Restrito ao perfil ADMIN.
+- **Middlewares / Autenticação:** `authenticateJWT`, `validate(findUserSchema)`, `authorizeRoles('ADMIN')`, `includeDeletedValidateRole`.
 
 ### Parâmetros & Payload
 - **Query Params (`req.query`):**
@@ -308,6 +308,7 @@ Controle de autenticação, criação de credenciais e gerenciamento de perfis d
   - `limit`: `number` opcional (mínimo 1).
   - `is_active`: `'true' | 'false'` opcional.
   - `include_deleted`: `'true' | 'false'` opcional (apenas `ADMIN`).
+  - `store_id`: `string` UUID v4 opcional (filtra usuários vinculados a uma filial específica).
   - `created_at_gte`, `created_at_lte`: `string` data ISO `YYYY-MM-DD` opcional.
   - `name_like`: `string` opcional.
   - `email_like`: `string` opcional.
@@ -337,8 +338,8 @@ Controle de autenticação, criação de credenciais e gerenciamento de perfis d
 ---
 
 ## `GET` /api/users/:id
-- **Descrição:** Busca um usuário específico do mesmo tenant através de seu UUID. Retorna `404` caso pertença a outro tenant.
-- **Middlewares / Autenticação:** `validate(findByIdUserSchema)`, `authenticateJWT`, `authorizeRoles('ADMIN', 'VENDEDOR')`.
+- **Descrição:** Busca um usuário específico do mesmo tenant através de seu UUID. Restrito ao perfil ADMIN. Retorna `404` caso pertença a outro tenant.
+- **Middlewares / Autenticação:** `validate(findByIdUserSchema)`, `authenticateJWT`, `authorizeRoles('ADMIN')`.
 
 ### Parâmetros & Payload
 - **Path Params (`req.params`):**
@@ -639,6 +640,9 @@ Gerenciamento das concessionárias e unidades físicas dentro do tenant autentic
 ### Respostas
 - **`200 OK`**: Retorna `{"item": { ... }}` com `deleted_at` preenchido e `is_active: false`.
 - **`404 Not Found`**: Loja inexistente ou pertencente a outro tenant.
+- **`409 Conflict`**:
+  - `{"message": "Não é permitido excluir a própria filial vinculada ao usuário"}`: caso o usuário autenticado esteja vinculado à filial a ser excluída (`req.user.storeId === id`).
+  - `{"message": "Não é possível excluir loja com usuários ou veículos ativos vinculados"}`: caso existam registros ativos em `users` ou `vehicles` associados a esta filial no tenant.
 
 ---
 

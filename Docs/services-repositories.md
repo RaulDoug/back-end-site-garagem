@@ -54,7 +54,7 @@ Classes genéricas parametrizadas (`T extends QueryResultRow, C = Record<string,
 - **`findById(id: string, tenantId?: string): Promise<T | null>`:**
   - Executa `SELECT * FROM ${this.tableName} WHERE id = $1` aplicando `buildTenantClause(tenantId, 2)` (rejeita `tenantId` em branco com `400` quando `isTenantScoped`) e `AND deleted_at IS NULL` se `options.softDelete`.
 - **`find(filters: FindData, tenantId?: string): Promise<T[]>`:**
-  - Gera SQL via `buildFindQuery(this.tableName, filters, findOptions)` (repassa `{ softDelete: this.options.softDelete }` e `tenantId` quando `this.isTenantScoped && tenantId !== undefined`; suporta `=`, `>=`, `<=`, `ILIKE`, `IN`/`ANY`, `includeDeleted`, `columns`, `orderBy` e `limit`).
+  - Gera SQL via `buildFindQuery(this.tableName, filters, findOptions)` (repassa `{ softDelete: this.options.softDelete }` e `tenantId` quando `this.isTenantScoped && tenantId !== undefined`; suporta `=`, `>=`, `<=`, `ILIKE`, `IN`/`ANY`, `includeDeleted`, `columns`, `orderBy` e paginação via `filters.page` e `filters.limit` / `options.limit` e `options.offset`).
 - **`create(data: C): Promise<T>`:**
   - Gera SQL via `buildInsertQuery(this.tableName, data)`.
 - **`update(id: string, data: Partial<C>, tenantId?: string): Promise<T | null>`:**
@@ -121,17 +121,16 @@ Gerencia regras de credenciamento multi-tenant, vínculo opcional a filial (`sto
 - **Regras de Negócio & Fluxos:**
   1. Exige `tenantId` não vazio (`AppError('Tenant não identificado', 401)`).
   2. Normaliza e-mail para lowercase e verifica duplicidade no tenant via `userRepository.findByEmail(normalizedEmail, tenantId)` (`409` `'E-mail já cadastrado'`).
-  3. Se `data.store_id` for informado, valida via `storeRepo.findByIdAndTenant(data.store_id, tenantId)` (`404` `'Filial informada não encontrada nesta empresa'`).
+  3. Se `data.store_id` for informado, valida via `storeRepo.findByIdAndTenant(data.store_id, tenantId)` exigindo existência e status ativo (`store.is_active === true`), senão lança `404` `'Filial informada não encontrada nesta empresa'`.
   4. Criptografa senha com `hashPassword(password)` e cria usuário com `tenant_id: tenantId` e `store_id: data.store_id ?? null`.
   5. Remove `password_hash` do retorno.
 
 #### `login(data: LoginUserInput): Promise<{ token: string; user: Omit<User, 'password_hash'> }>`
 - **Regras de Negócio & Fluxos:**
-  1. Se `tenant_id` for informado: busca usuário com `userRepository.findByEmail(email, tenant_id)`.
-  2. Se `tenant_id` **não** for informado: busca candidatos ativos via `userRepository.findAllActiveByEmail(email)`. Se `candidates.length > 1`, lança `AppError('E-mail vinculado a múltiplas empresas. Informe o tenant_id para autenticar.', 400)`. Caso contrário usa `candidates[0] ?? null`.
-  3. Valida existência e `user.is_active === true`; compara senha via `comparePassword`. Em falha lança `AppError('Credenciais inválidas', 401)`.
-  4. Gera JWT (`HS256`, `1d`) com `{ id, email, role, tenantId: user.tenant_id ?? '', storeId: user.store_id ?? null }`.
-  5. Retorna `{ token, user }` sem `password_hash`.
+  1. Se `tenant_id` for informado: busca usuário com `userRepository.findByEmail(email, tenant_id)`. Se inexistente ou `!user.is_active`, lança `401` `'Credenciais inválidas'`. Valida senha com `comparePassword`. Se inválida, lança `401`. Verifica `findAuthUserById(user.id)` para garantir que tenant e store permaneçam ativos e não deletados (lança `401` se inativos).
+  2. Se `tenant_id` **não** for informado: busca candidatos ativos via `userRepository.findAllActiveByEmail(email)`. Filtra candidatos ativos (`candidates.filter((c) => c.is_active)`). Se vazio, lança `401` `'Credenciais inválidas'`. Valida senha contra todos os candidatos ativos (anti-enumeração); se nenhum bater, lança `401` `'Credenciais inválidas'`. Se mais de um candidato ativo existir com senha válida, lança `400` `'E-mail vinculado a múltiplas empresas. Informe o tenant_id para autenticar.'`. Caso contrário autentica o candidato único correspondente.
+  3. Gera JWT (`HS256`, `1d`) com `{ id, email, role, tenantId: user.tenant_id ?? '', storeId: user.store_id ?? null }`.
+  4. Retorna `{ token, user }` sem `password_hash`.
 
 #### `findById(id: string, tenantId?: string): Promise<Omit<User, 'password_hash'>>`
 - Consulta `userRepository.findById(id, tenantId)` (`404` `'Usuário inexistente.'`), removendo `password_hash`.
@@ -140,7 +139,7 @@ Gerencia regras de credenciamento multi-tenant, vínculo opcional a filial (`sto
 - Delega `(filters, tenantId)` diretamente para `userRepository.find(filters, tenantId)` (sem injetar filtro `tenant_id` no service) e remove `password_hash` de todos os itens.
 
 #### `update(id: string, data: UpdateUserBody, tenantId?: string): Promise<Omit<User, 'password_hash'>>`
-- Valida existência no tenant (`404` `'Usuário inexistente.'`), verifica duplicidade de e-mail se alterado (`409` `'E-mail já em uso por outro usuário'`), valida `data.store_id` no tenant via `storeRepo.findByIdAndTenant` (`404` `'Filial informada não encontrada nesta empresa'`), atualiza via `userRepository.update(id, data, tenantId)` (`400` se vazio) e oculta `password_hash`.
+- Valida existência no tenant (`404` `'Usuário inexistente.'`). Se `data.store_id` for enviado, valida existência e status ativo no tenant via `storeRepo.findByIdAndTenant` (`404` `'Filial informada não encontrada nesta empresa'`). Atualiza via `userRepository.update(id, data, tenantId)` (`400` se vazio) e oculta `password_hash`. (Alteração de e-mail não é permitida nesta rota).
 
 #### `delete(id: string, tenantId?: string): Promise<Omit<User, 'password_hash'>>`
 - Verifica existência no tenant (`404` `'Usuário inexistente.'`), executa soft delete no tenant e oculta `password_hash`. *(A trava contra auto-exclusão fica em `UserController.delete`).*
@@ -151,8 +150,8 @@ Gerencia regras de credenciamento multi-tenant, vínculo opcional a filial (`sto
 **Arquivo:** `src/repositories/user.repository.ts`
 
 - **`columns`:** `['id', 'tenant_id', 'store_id', 'name', 'email', 'password_hash', 'phone', 'role', 'commission_rates', 'is_active', 'deleted_at', 'created_at']`.
-- **`findByEmail(email: string, tenantId?: string): Promise<User | null>`:** Filtra por `tenant_id = $1 AND LOWER(email) = LOWER($2) AND deleted_at IS NULL` quando `tenantId` é informado (ou `ORDER BY created_at ASC LIMIT 1` global se omitido).
-- **`findAllActiveByEmail(email: string): Promise<User[]>`:** Busca todas as contas ativas e não deletadas com o e-mail informado (`LOWER(email) = LOWER($1) AND deleted_at IS NULL AND is_active = true ORDER BY created_at ASC`).
+- **`findByEmail(email: string, tenantId?: string): Promise<User | null>`:** Rejeita `tenantId` em branco ou inválido com `400 BadRequestError('Identificador de tenant inválido')`. Filtra por `tenant_id = $1 AND LOWER(email) = LOWER($2) AND deleted_at IS NULL` quando `tenantId` é informado (ou `ORDER BY created_at ASC LIMIT 1` global se omitido).
+- **`findAllActiveByEmail(email: string): Promise<User[]>`:** Busca todas as contas ativas com o e-mail informado executando `INNER JOIN tenants t ON t.id = u.tenant_id` e `LEFT JOIN stores s ON s.id = u.store_id AND s.tenant_id = u.tenant_id`, exigindo usuário, empresa e filial (quando vinculada) simultaneamente ativos e não deletados.
 - **`findAuthUserById(id: string): Promise<User | null>`:** Query unificada utilizada pelo `authenticateJWT` que executa `INNER JOIN tenants t ON t.id = u.tenant_id` e `LEFT JOIN stores s ON s.id = u.store_id AND s.tenant_id = u.tenant_id`, garantindo que usuário, empresa e filial vinculada (quando `u.store_id IS NOT NULL`) estejam simultaneamente ativos e não deletados.
 - **`create(data: CreateUserData): Promise<User>`:** Insere `tenant_id`, `store_id` (`null` padrão), `role` (`COALESCE($7, 'VENDEDOR')::users_roles_types`), `commission_rates` (`$8 ?? null`).
 
@@ -173,8 +172,14 @@ Gerenciamento das concessionárias e filiais com isolamento por `tenant_id`, che
 #### `create(data: unknown, tenantId?: string): Promise<Store>`
 - Exige `tenantId` (`401` `'Tenant não identificado'`), valida body com `createStoreSchema.shape.body`, verifica unicidade de CNPJ (`409` `'CNPJ já cadastrado'`) e persiste com `tenant_id: tenantId`.
 
-#### `find(filters, tenantId)` / `findById(id, tenantId)` / `delete(id, tenantId)`
+#### `find(filters, tenantId)` / `findById(id, tenantId)`
 - Delegam para `BaseService` escopados por `tenantId`.
+
+#### `delete(id: string, tenantId?: string, actorStoreId?: string | null): Promise<Store>`
+- Exige `tenantId` válido (`401` `'Tenant não identificado'`).
+- Bloqueia exclusão da própria filial vinculada ao usuário autenticado (`actorStoreId === id`) lançando `409` `'Não é permitido excluir a própria filial vinculada ao usuário'`.
+- Verifica dependências ativas via `repository.hasActiveDependencies(id, tenantId)`; se houver usuários ou veículos ativos vinculados, lança `409` `'Não é possível excluir loja com usuários ou veículos ativos vinculados'`.
+- Executa exclusão lógica delegando para `super.delete(id, tenantId)`.
 
 #### `findPublicById(id: string): Promise<Store>`
 - Busca loja via `repository.findById(id)` e valida `!store || !store.is_active || store.deleted_at != null`.
@@ -182,7 +187,9 @@ Gerenciamento das concessionárias e filiais com isolamento por `tenant_id`, che
 - Em qualquer inconsistência lança `NotFoundError('Loja não encontrada')`.
 
 #### `update(id: string, data: unknown, tenantId?: string): Promise<Store>`
-- Verifica pertencimento ao tenant (`super.findById(id, tenantId)`), checa colisão de CNPJ caso alterado (`409` `'CNPJ já em uso por outra loja'`) e executa `super.update(id, updateData, tenantId)`.
+- Exige `tenantId` válido (`401`).
+- Higieniza CNPJ quando presente no payload, verifica colisão via `repository.findByCNPJ` comparando IDs de forma case-insensitive (`existingStore.id.toLowerCase() !== id.toLowerCase()`) e lança `409` `'CNPJ já em uso por outra loja'` apenas se pertencer a outra loja.
+- Persiste via `super.update(id, updateData, tenantId)`.
 
 ---
 
@@ -192,6 +199,7 @@ Gerenciamento das concessionárias e filiais com isolamento por `tenant_id`, che
 - **`columns`:** inclui `'tenant_id'`, `'id'`, `'name'`, `'phone'`, `'zip_code'`, `'street'`, `'number'`, `'neighborhood'`, `'city'`, `'state'`, `'complement'`, `'cnpj'`, `'is_active'`, `'deleted_at'`, `'created_at'`.
 - **`findByCNPJ(cnpj: string): Promise<Store | null>`:** `SELECT * FROM stores WHERE cnpj = $1 AND deleted_at IS NULL LIMIT 1;`.
 - **`findByIdAndTenant(id: string, tenantId: string): Promise<Store | null>`:** `SELECT * FROM stores WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1;`.
+- **`hasActiveDependencies(id: string, tenantId: string): Promise<boolean>`:** Executa query combinada verificando se existem usuários (`users WHERE store_id = $1 AND tenant_id = $2 AND deleted_at IS NULL`) ou veículos (`vehicles WHERE store_id = $1 AND tenant_id = $2 AND deleted_at IS NULL`) ativos vinculados à filial, retornando `boolean`.
 
 ---
 
