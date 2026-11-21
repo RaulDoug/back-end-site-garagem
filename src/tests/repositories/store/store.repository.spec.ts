@@ -77,6 +77,8 @@ describe('StoreRepository - integração com PostgreSQL', () => {
     if (createdTenantIds.size === 0) return;
 
     const ids = Array.from(createdTenantIds);
+    await pool.query('DELETE FROM users WHERE tenant_id = ANY($1::uuid[])', [ids]);
+    await pool.query('DELETE FROM vehicles WHERE tenant_id = ANY($1::uuid[])', [ids]);
     await pool.query('DELETE FROM stores WHERE tenant_id = ANY($1::uuid[])', [ids]);
     await pool.query('DELETE FROM tenants WHERE id = ANY($1::uuid[])', [ids]);
     createdTenantIds.clear();
@@ -221,5 +223,21 @@ describe('StoreRepository - integração com PostgreSQL', () => {
 
     const mismatch = await repository.findByIdAndTenant(storeA.id, tenantB.id);
     expect(mismatch).toBeNull();
+  });
+
+  it('hasActiveDependencies deve retornar false para loja sem vínculos e true quando houver usuário ativo vinculado', async () => {
+    const store = await createRepositoryStore('deps_test');
+    const noDeps = await repository.hasActiveDependencies(store.id, tenantA.id);
+    expect(noDeps).toBe(false);
+
+    const userEmail = `user.dep.${Date.now()}.${Math.random()}@test.com`;
+    await pool.query(
+      `INSERT INTO users (tenant_id, store_id, name, email, password_hash, phone, role, is_active)
+       VALUES ($1, $2, 'User Dep', $3, 'hash123', '(37) 99999-0000', 'VENDEDOR'::users_roles_types, true)`,
+      [tenantA.id, store.id, userEmail]
+    );
+
+    const hasDeps = await repository.hasActiveDependencies(store.id, tenantA.id);
+    expect(hasDeps).toBe(true);
   });
 });

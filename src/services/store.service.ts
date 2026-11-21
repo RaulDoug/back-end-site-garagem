@@ -69,15 +69,21 @@ export default class StoreService extends BaseService<Store, CreateStoreData> {
   }
 
   override async update(id: string, data: unknown, tenantId?: string): Promise<Store> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new AppError('Tenant não identificado', 401);
+    }
+
     await super.findById(id, tenantId);
 
-    const updateData = data as Partial<CreateStoreData>;
+    let updateData = data as Partial<CreateStoreData>;
     if (updateData.cnpj) {
       const cleanCnpj = updateData.cnpj.replace(/\D/g, '');
       const lookupCnpj = cleanCnpj.length === 14 ? cleanCnpj : updateData.cnpj;
+      updateData = { ...updateData, cnpj: lookupCnpj };
+
       const existingStore = await this.repository.findByCNPJ(lookupCnpj);
 
-      if (existingStore !== null && existingStore.id !== id) {
+      if (existingStore !== null && existingStore.id.toLowerCase() !== id.toLowerCase()) {
         throw new AppError('CNPJ já em uso por outra loja', 409);
       }
     }
@@ -85,8 +91,23 @@ export default class StoreService extends BaseService<Store, CreateStoreData> {
     return await super.update(id, updateData, tenantId);
   }
 
-  override async delete(id: string, tenantId?: string): Promise<Store> {
+  override async delete(id: string, tenantId?: string, actorStoreId?: string | null): Promise<Store> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new AppError('Tenant não identificado', 401);
+    }
+
     await super.findById(id, tenantId);
+
+    if (actorStoreId && actorStoreId.toLowerCase() === id.toLowerCase()) {
+      throw new AppError('Não é permitido excluir a própria filial vinculada ao usuário', 409);
+    }
+
+    if (typeof this.repository.hasActiveDependencies === 'function') {
+      const hasDeps = await this.repository.hasActiveDependencies(id, tenantId);
+      if (hasDeps === true) {
+        throw new AppError('Não é possível excluir loja com usuários ou veículos ativos vinculados', 409);
+      }
+    }
 
     return await super.delete(id, tenantId);
   }

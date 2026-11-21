@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { createStoreE2EContext } from './store.e2e.helpers.js';
+import { createStoreE2EContext, DEFAULT_TENANT_ID } from './store.e2e.helpers.js';
 
 const {
   app,
@@ -214,6 +214,33 @@ describe('E2E - /api/stores', () => {
         .set('Authorization', `Bearer ${vendedorToken}`);
 
       expect(response.status).toBe(403);
+    });
+
+    it('deve retornar 409 ao tentar deletar uma loja que possui usuário ativo vinculado', async () => {
+      const created = await createStore(validStorePayload(), adminToken);
+      const storeId = created.body.item.id;
+
+      const userEmail = `e2e.dep.${Date.now()}@garagem.com`;
+      const userRes = await pool.query(
+        `INSERT INTO users (tenant_id, store_id, name, email, password_hash, phone, role, is_active)
+         VALUES ($1, $2, 'Vendedor Vinculado', $3, 'hash123', '(37) 99999-0000', 'VENDEDOR'::users_roles_types, true)
+         RETURNING id`,
+        [DEFAULT_TENANT_ID, storeId, userEmail]
+      );
+      const userId = userRes.rows[0].id;
+
+      try {
+        const response = await request(app)
+          .delete(`/api/stores/${storeId}`)
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(409);
+        expect(response.body.message).toMatch(
+          /não é possível excluir loja com usuários ou veículos ativos/i
+        );
+      } finally {
+        await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+      }
     });
   });
 

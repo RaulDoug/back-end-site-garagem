@@ -43,7 +43,7 @@ export default class StoreController extends BaseController<Store, CreateStoreDa
   override delete = async (req: Request, res: Response): Promise<Response> => {
     const { id } = req.params;
     const tenantId = req.user!.tenantId;
-    const item = await this.service.delete(id as string, tenantId);
+    const item = await this.service.delete(id as string, tenantId, req.user?.storeId ?? null);
 
     return res.status(200).json({ item });
   };

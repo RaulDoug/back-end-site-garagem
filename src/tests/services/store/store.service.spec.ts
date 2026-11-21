@@ -59,6 +59,7 @@ describe('StoreService', () => {
       delete: vi.fn(),
       find: vi.fn(),
       findByIdAndTenant: vi.fn(),
+      hasActiveDependencies: vi.fn().mockResolvedValue(false),
     } as unknown as StoreRepository;
 
     tenantRepository = {
@@ -317,9 +318,69 @@ describe('StoreService', () => {
         storeService.update('id-inexistente', { name: 'Loja' }, 'tenant-123')
       ).rejects.toThrow(NotFoundError);
     });
+
+    it('deve lançar AppError (401) se tenantId não for informado ao atualizar', async () => {
+      await expect(
+        storeService.update(mockStore.id, { name: 'Novo Nome' }, '')
+      ).rejects.toThrow(new AppError('Tenant não identificado', 401));
+
+      expect(storeRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('deve higienizar CNPJ com máscara antes de persistir no repositório e comparar IDs de forma case-insensitive', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
+      vi.mocked(storeRepository.findByCNPJ).mockResolvedValue(mockStore);
+      vi.mocked(storeRepository.update).mockResolvedValue(mockStore);
+
+      const result = await storeService.update(
+        mockStore.id.toUpperCase(),
+        { cnpj: '12.345.678/0001-95' },
+        'tenant-123'
+      );
+
+      expect(storeRepository.findByCNPJ).toHaveBeenCalledWith('12345678000195');
+      expect(storeRepository.update).toHaveBeenCalledWith(
+        mockStore.id.toUpperCase(),
+        { cnpj: '12345678000195' },
+        'tenant-123'
+      );
+      expect(result).toEqual(mockStore);
+    });
   });
 
   describe('delete', () => {
+    it('deve lançar AppError (401) se tenantId não for informado ao deletar', async () => {
+      await expect(
+        storeService.delete(mockStore.id, '')
+      ).rejects.toThrow(new AppError('Tenant não identificado', 401));
+
+      expect(storeRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('deve lançar AppError (409) ao tentar excluir a própria filial vinculada ao usuário logado', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
+
+      await expect(
+        storeService.delete(mockStore.id, 'tenant-123', mockStore.id.toUpperCase())
+      ).rejects.toThrow(
+        new AppError('Não é permitido excluir a própria filial vinculada ao usuário', 409)
+      );
+
+      expect(storeRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('deve lançar AppError (409) ao tentar excluir filial que possui usuários ou veículos ativos vinculados', async () => {
+      vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
+      vi.mocked(storeRepository.hasActiveDependencies).mockResolvedValue(true);
+
+      await expect(
+        storeService.delete(mockStore.id, 'tenant-123', null)
+      ).rejects.toThrow(
+        new AppError('Não é possível excluir loja com usuários ou veículos ativos vinculados', 409)
+      );
+
+      expect(storeRepository.delete).not.toHaveBeenCalled();
+    });
     it('deve remover a loja com sucesso dentro do tenant', async () => {
       vi.mocked(storeRepository.findById).mockResolvedValue(mockStore);
       vi.mocked(storeRepository.delete).mockResolvedValue(mockStore);
